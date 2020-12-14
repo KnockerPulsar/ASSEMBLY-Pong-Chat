@@ -32,7 +32,6 @@ GoIntoTextMode MACRO
 	               POP  AX
 
 ENDM         
-
 ClearScreen MACRO    
             PUSHA ; Will cause erros in VSCode
             mov ax,0600h
@@ -40,22 +39,32 @@ ClearScreen MACRO
             mov cx,0
             mov dx,184FH
             int 10h
-            POPA ; Will cause erros in VSCode 
+            POPA ; Will cause errors in VSCode 
 ENDM              
-
 GetPlayerInput MACRO 
              
      PUSH CX
      MOV CL, LocalY
-     mov ah,1
-     int 16h    
-               
+     MOV AH,1
+     INT 16H    
+
+	; Checks if the user pressed F4
+	; If so, goes back to the main menu
+	; TODO: SHOW THE SCORE FOR 5 SECONDS THEN GO TO THE MAIN MENU/OPTIONS MENU
+	; Note that choosing to play a game again after leaving the first one picks up exactly where the first left off
+	; Might need to keep an array of initial values to re-initialize the game again.
+	 CMP AH, 62D
+	 JZ OptionsScreen
+	
+	; Checks if the player pressed the up arrow
+	; If so, decrements the y position of the paddle (since the y axis points down)
      CMP AH, 72D
      JZ MoveUp
-     
+    
+	; Same as the up check but increments the y position
      CMP AH, 80D
      JZ MoveDown
-     
+
      JMP EndInput
      
 MoveUp:          
@@ -70,8 +79,7 @@ EndInput:
        POP CX  
        
        FlushKeyBuffer
-ENDM
-                  
+ENDM              
 FlushKeyBuffer MACRO 
                 PUSH AX
 	            mov ah,0ch
@@ -79,39 +87,44 @@ FlushKeyBuffer MACRO
 	            int 21h   
 	            POP AX
 ENDM FlushKeyBuffer     
+DisplayMessage MACRO Message
+		 MOV 			AH, 9h
+		 MOV 			DX, OFFSET Message
+		 INT 21h	
+ENDM
 
 .Model SMALL
 .STACK 64
 
 .DATA
-	; Variables here
-	PaddleInitialRow     DB  0CH
-	LeftPaddleIitialCol  DB  2H
-	RightPaddleIitialCol DB  77D
-	Paddle               EQU "|"
-	BallInititLoc        DB  3D, 11D
-    Ball EQU "O"                 
-    
-    
-    LocalX DB 2D
-    LocalY DB 12D
-    
-    OtherX DB 77D
-    OtherY DB 12D
-    
-    BallCurrX DB 3D
-    BallCurrY DB 11D
-    
-    BallPrevX DB ?
-    BallPrevY DB ?
-    
-	;Displayed messages
-	Welc DB 'Please Enter Your Name:', 13, 10, '$'
-	Hel DB 'Please Enter any key to continue','$'
-	Choices DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
-	Info DB 13,10,'- You send a chat invitaion to ','$'
-	userName DB 16,?, 16 DUP('$')
-
+	 ; Variables here
+	 PaddleInitialRow     DB  0CH
+	 LeftPaddleIitialCol  DB  2H
+	 RightPaddleIitialCol DB  77D
+	 Paddle               EQU "|"
+	 BallInititLoc        DB  3D, 11D
+     Ball EQU "O"                 
+     
+     
+     LocalX DB 2D
+     LocalY DB 12D
+     
+     OtherX DB 77D
+     OtherY DB 12D
+     
+     BallCurrX DB 3D
+     BallCurrY DB 11D
+     
+     BallPrevX DB ?
+     BallPrevY DB ?
+     
+	 ;Displayed messages
+	 Welc DB 'Please Enter Your Name:', 13, 10, '$'
+	 Hel DB 'Please Enter any key to continue','$'
+	 Choices DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
+	 Info DB 13,10,'- You send a chat invitaion to ','$'
+	 userName DB 16,?, 16 DUP('$')
+ 
 .CODE
 MAIN PROC FAR
 	; Code here
@@ -124,24 +137,21 @@ MAIN PROC FAR
 
 	; Main Screen
 	Home:
-		ClearScreen
-				;Display the Message in the middle of the main screen
-		;Move Cursor
-		 MOV 			AH, 2
-		 MOV 			DX, 0A0Ah
-		 INT 10h
-			
-		;Display Message
-		 MOV 			AH, 9h
-		 MOV 			DX, OFFSET Welc
-		 INT 21h
+		 ClearScreen
+		 
+		;Display the Message in the middle of the main screen
+		;Move Cursor 
+		 MoveCursor 0AH, 0AH
 
+		;Display welcome message
+		 DisplayMessage Welc
+	
 	;Get user's name
 		;Move Cursor 
-		 MOV 			AH, 2
-		 MOV 			DX, 0C0Ch
-		 INT 10h
+  		 MoveCursor 0CH, 0CH
 
+		; This part isn't repeated that much, probably doesn't need a macro
+		; Take the username as an input
 		 MOV 			AH, 0Ah
 		 MOV 			DX, OFFSET userName
 		 INT 21h
@@ -155,38 +165,32 @@ MAIN PROC FAR
 		 JA Check 			; If greater than A and not in range A:Z, check for a:z
 			
 	Check:
-		CMP userName+2,61h
-		JB Home 
-		CMP userName+2, 7Ah
-		JA Home  			; If not a letter, clear
+		 CMP userName+2,61h
+		 JB Home 
+		 CMP userName+2, 7Ah
+		 JA Home  			; If not a letter, clear
 
 	
 	Welcome:				;Welcome the user
 		;Move Cursor
-		 MOV 			AH, 2
-		 MOV 			DX, 0D0Ah
-		 INT 10h
-		;Display message
-		 MOV 			AH, 9h
-		 MOV 			DX, OFFSET Hel
-		 INT 21h
+		 MoveCursor 0AH, 0DH
+
+		;Display "press any key to continue" message
+		 DisplayMessage Hel
+
 		;Get any key as an indicatr to continue
 		 MOV 			AH, 0
 		 INT 16h
 
 	OptionsScreen:
-		ClearScreen
+		 ClearScreen
 		;Move Cursor
-		 MOV 			AH, 2
-		 MOV 			DX, 0A18h
-		 INT 10h
-		
-		;Display Options
-		 MOV			AH, 9h
-		 MOV 			DX, OFFSET Choices
-		 INT 21h
+		 MoveCursor 18H, 0AH
 
-		;Get User's choice
+		;Display Options
+		 DisplayMessage Choices
+			
+	;Get User's choice
 	CHS:
 		 MOV 			AH, 0
 		 INT 16h
@@ -200,43 +204,45 @@ MAIN PROC FAR
 		 JNZ CHS 			; if the pressed key not an option, loop till it is
 
 	Chatting:		
-	;To be Continued "D
+		;To be Continued "D
 		;Move cursor to the footer
-		 MOV 			AH, 2
-		 MOV 			DX, 1500h
-		 INT 10h
-
+		 MoveCursor 00H, 15H
+		
+		
+	; Loading the character, number of loops and preparing the interrupt 
 		 MOV 			CX, 79
-	Footer: ;Draw the dashed line
 		 MOV 			AH, 2
 		 MOV 			DL, '-'
+ 	;Draw the dashed line
+	Footer:
 		 INT 21h
-		LOOP Footer
+		 LOOP Footer
+		 
 		; Show info message
-		 MOV			AH, 9h
-		 MOV 			DX, OFFSET Info
-		 INT 21h
-		;Just to hold the program to see the above changes till we decide what to do next
+		 DisplayMessage Info
+		
+	 	; Just to hold the program to see the above changes till we decide what to do next
 		 MOV 			AH, 0
 		 INT 16h
 		 JMP Exit
-	
-GameLoop:     
-	; Get player input    
-	; Currently only getting local player input
-	GetPlayerInput      
-	
-	; Draw The paddle at their proper position, derived from player input
-	CALL Draw
-	
-	; Move ball
-	
-	Loop GameLoop
+		
+	GameLoop:     
+		; Get player input    
+		; Currently only getting local player input
+		 GetPlayerInput      
+		 
+		; Draw The paddle at their proper position, derived from player input
+		 CALL Draw
+		 
+	     ; TODO: Move ball
+	     ; Might get changed depending on the game
+ 
+		 Loop GameLoop
 
-Exit:
-	; Exits the program
-	     MOV            AH, 4CH
-	     INT            21H
+	Exit:
+		; Exits the program
+		 MOV            AH, 4CH
+		 INT            21H
 
 MAIN ENDP
 
@@ -249,38 +255,38 @@ Draw PROC
 	; Same as the left paddle but move to row 77D   
 	
 	; DL carries the X coordinate (Columns), DH carries the Y coordinate (Rows)
-         MOV CX, 3D
-	     MOV            DL , LocalX
-	     MOV            DH, LocalY
-         
+	MOV CX, 3D
+	MOV            DL, LocalX
+	MOV            DH, LocalY
+	
 	ClearScreen
                             
-LeftPaddleInit:                            
-	     MoveCursor     DL,DH
-	     DisplayChar    Paddle
-	     DEC DH            
-	     LOOP LeftPaddleInit
-	                         
-	     MOV CX, 3D                        
-	     MOV            DL , OtherX
-	     MOV            DH, OtherY                           
-RightPaddleInit:                            
-	     MoveCursor     DL,DH
-	     DisplayChar    Paddle
-	     DEC DH
-	     LOOP RightPaddleInit
-	                            
-	                            
-	     MOV DL, BallCurrX
-	     MOV DH, BallCurrY
-	     	     
-	     MoveCursor DL,DH
-	     DisplayChar Ball
-	     
+DrawLeftPaddle:                            
+	MoveCursor     DL,DH
+	DisplayChar    Paddle
+	DEC DH            
+	LOOP DrawLeftPaddle
 
+; Prepare to draw the right paddle		
+	MOV CX, 3D                        
+	MOV            DL, OtherX
+	MOV            DH, OtherY 
 
-	     RET
+DrawRightPaddle:                            
+	MoveCursor     DL,DH
+	DisplayChar    Paddle
+	DEC DH
+	LOOP DrawRightPaddle             
+						
+; Draw the ball at its current position
+	MOV DL, BallCurrX
+	MOV DH, BallCurrY			
+	MoveCursor DL,DH
+	DisplayChar Ball
+
+	RET
 Draw ENDP
+
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
 
