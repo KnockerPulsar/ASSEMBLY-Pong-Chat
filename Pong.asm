@@ -1,3 +1,4 @@
+.286
 DisplayChar MACRO Char
 	            PUSH AX
 	            PUSH DX
@@ -104,6 +105,13 @@ ENDM FlushKeyBuffer
     BallPrevX DB ?
     BallPrevY DB ?
     
+	;Displayed messages
+	Welc DB 'Please Enter Your Name:', 13, 10, '$'
+	Hel DB 'Please Enter any key to continue','$'
+	Choices DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
+	Info DB 13,10,'- You send a chat invitaion to ','$'
+	userName DB 16,?, 16 DUP('$')
+
 .CODE
 MAIN PROC FAR
 	; Code here
@@ -113,7 +121,105 @@ MAIN PROC FAR
 
 	; Chaning video mode
 	     GoIntoTextMode
- 
+
+	; Main Screen
+	Home:
+		ClearScreen
+				;Display the Message in the middle of the main screen
+		;Move Cursor
+		 MOV 			AH, 2
+		 MOV 			DX, 0A0Ah
+		 INT 10h
+			
+		;Display Message
+		 MOV 			AH, 9h
+		 MOV 			DX, OFFSET Welc
+		 INT 21h
+
+	;Get user's name
+		;Move Cursor 
+		 MOV 			AH, 2
+		 MOV 			DX, 0C0Ch
+		 INT 10h
+
+		 MOV 			AH, 0Ah
+		 MOV 			DX, OFFSET userName
+		 INT 21h
+
+		;Validate the name
+		 CMP userName+2, 41h 
+		 JB Home 
+		 
+		 CMP userName+2, 5Ah
+		 JBE Welcome 		; if in range A:Z
+		 JA Check 			; If greater than A and not in range A:Z, check for a:z
+			
+	Check:
+		CMP userName+2,61h
+		JB Home 
+		CMP userName+2, 7Ah
+		JA Home  			; If not a letter, clear
+
+	
+	Welcome:				;Welcome the user
+		;Move Cursor
+		 MOV 			AH, 2
+		 MOV 			DX, 0D0Ah
+		 INT 10h
+		;Display message
+		 MOV 			AH, 9h
+		 MOV 			DX, OFFSET Hel
+		 INT 21h
+		;Get any key as an indicatr to continue
+		 MOV 			AH, 0
+		 INT 16h
+
+	OptionsScreen:
+		ClearScreen
+		;Move Cursor
+		 MOV 			AH, 2
+		 MOV 			DX, 0A18h
+		 INT 10h
+		
+		;Display Options
+		 MOV			AH, 9h
+		 MOV 			DX, OFFSET Choices
+		 INT 21h
+
+		;Get User's choice
+	CHS:
+		 MOV 			AH, 0
+		 INT 16h
+		
+		;Check user's input
+		 CMP AH, 1   		; Check for ESC
+		 JZ Exit
+		 CMP AH, 3Ch 		; Check for F2
+		 JZ GameLoop
+		 CMP AH, 3Bh 		; Check for F1
+		 JNZ CHS 			; if the pressed key not an option, loop till it is
+
+	Chatting:		
+	;To be Continued "D
+		;Move cursor to the footer
+		 MOV 			AH, 2
+		 MOV 			DX, 1500h
+		 INT 10h
+
+		 MOV 			CX, 79
+	Footer: ;Draw the dashed line
+		 MOV 			AH, 2
+		 MOV 			DL, '-'
+		 INT 21h
+		LOOP Footer
+		; Show info message
+		 MOV			AH, 9h
+		 MOV 			DX, OFFSET Info
+		 INT 21h
+		;Just to hold the program to see the above changes till we decide what to do next
+		 MOV 			AH, 0
+		 INT 16h
+		 JMP Exit
 	
 GameLoop:     
 	; Get player input    
@@ -127,6 +233,7 @@ GameLoop:
 	
 	Loop GameLoop
 
+Exit:
 	; Exits the program
 	     MOV            AH, 4CH
 	     INT            21H
