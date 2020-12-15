@@ -264,6 +264,10 @@ Draw PROC
 	; Row 0CH, column 2, output
 	; Then the right paddle
 	; Same as the left paddle but move to row 77D   
+
+	
+	; Flicker solution found at: https://stackoverflow.com/questions/43794402/avoid-blinking-flickering-when-drawing-graphics-in-8086-real-mode
+	CALL waitForNewVR
 	
 	; DL carries the X coordinate (Columns), DH carries the Y coordinate (Rows)
 	MOV CX, 3D
@@ -284,91 +288,109 @@ DrawLeftPaddle:
 	MOV            DH, OtherY 
 
 DrawRightPaddle:                            
-	MoveCursor     DL,DH
-	DisplayChar    Paddle
-	DEC DH
-	LOOP DrawRightPaddle             
+	 MoveCursor     DL,DH
+	 DisplayChar    Paddle
+	 DEC DH
+	 LOOP DrawRightPaddle             
 						
-; Draw the ball at its current position
-	MOV DL, BallCurrX
-	MOV DH, BallCurrY			
-	MoveCursor DL,DH
-	DisplayChar Ball
+	; Draw the ball at its current position
+	 MOV DL, BallCurrX
+	 MOV DH, BallCurrY			
+	 MoveCursor DL,DH
+	 DisplayChar Ball
 
 
 ; Preparing to draw the characters/points
 ; First, must point at the start or end of Block_Nums
-	MOV SI, OFFSET Block_Nums	
-	MOV DI,3D            ; Going to draw 3 columns, so DI = 3
-	MOV DL, 38D          ; Starting at column 38
+	 MOV SI, OFFSET Block_Nums	
+	 MOV DI,3D            ; Going to draw 3 columns, so DI = 3
+	 MOV DL, 38D          ; Starting at column 38
 
 DrawColumns:
-	MOV CX,0             ; Just making sure that CH doesn't have any leftover bits from other operations
-	MOV CL, 24D          ; Starting from the very bottom, will draw from the bottom up
-	MOV BX, OFFSET chars ; Setting up BX for XLAT
+	 MOV CX,0             ; Just making sure that CH doesn't have any leftover bits from other operations
+	 MOV CL, 24D          ; Starting from the very bottom, will draw from the bottom up
+	 MOV BX, OFFSET chars ; Setting up BX for XLAT
 	
 	DrawColumn:
-		MoveCursor DL ,CL    ; START FROM COL 38, ROW 25 DRAW ASCII 178 TILL THE TOP OF THE ROW
-
-		MOV AL,BYTE PTR [SI] ; Moving the the current byte/number SI is pointing at into AL
-		XLAT				 ; Converting the number into its respective character
-		DisplayChar AL		 
-
-		INC SI               ; Going forward one byte
-
-		CMP SI, OFFSET Chars   	  ; Checking if SI has reached the end of the numbers array
-		JNZ NOT_ZERO			  ; If not, continue as usual
-
-		MOV SI, OFFSET Block_Nums ; If so, reset SI to the start of the array, now it points at the first number
-
-		NOT_ZERO:				  
-		DEC CL					  ; Going up one row
-		CMP CL, 0FFH			  ; Checking if the The full column has been drawn (24 -> 0 and then an underflow)
-		JNZ DrawColumn				
-
-	INC DL						  ; Next clumn
-	DEC DI						  ; Just loop stuff
-	CMP DI, 0					  ; Just loop stuff 2: electric boogalo
-	JNZ DrawColumns  			  ; Looping on the 
+		 MoveCursor DL ,CL    ; START FROM COL 38, ROW 25 DRAW ASCII 178 TILL THE TOP OF THE ROW
+ 
+		 MOV AL,BYTE PTR [SI] ; Moving the the current byte/number SI is pointing at into AL
+		 XLAT				 ; Converting the number into its respective character
+		 DisplayChar AL		 
+ 
+		 INC SI               ; Going forward one byte
+ 
+		 CMP SI, OFFSET Chars   	  ; Checking if SI has reached the end of the numbers array
+		 JNZ NOT_ZERO			  ; If not, continue as usual
+ 
+		 MOV SI, OFFSET Block_Nums ; If so, reset SI to the start of the array, now it points at the first number
+ 
+		 NOT_ZERO:				  
+		 DEC CL					  ; Going up one row
+		 CMP CL, 0FFH			  ; Checking if the The full column has been drawn (24 -> 0 and then an underflow)
+		 JNZ DrawColumn				
+ 
+	 INC DL						  ; Next clumn
+	 DEC DI						  ; Just loop stuff
+	 CMP DI, 0					  ; Just loop stuff 2: electric boogalo
+	 JNZ DrawColumns  			  ; Looping on the 
 
 
 ; Preparing to draw the first obstacle
 ; Remember, The first byte is the xPos, the second byte is yPos, and the third byte is the height of the obstacle
-	MOV SI, OFFSET Block1		  	; Points at the first byte
-	MOV CX,0						; Clearing CX
-	MOV CL, BYTE PTR [SI + 2]	    ; Putting the height inside CL
-
-	MOV DL, BYTE PTR [SI]			; Putting the xPos in DL
-	MOV DH, BYTE PTR [SI] + 1		; Putting the yPos in DH
+	 MOV SI, OFFSET Block1		  	; Points at the first byte
+	 MOV CX,0						; Clearing CX
+	 MOV CL, BYTE PTR [SI + 2]	    ; Putting the height inside CL
+ 
+	 MOV DL, BYTE PTR [SI]			; Putting the xPos in DL
+	 MOV DH, BYTE PTR [SI] + 1		; Putting the yPos in DH
 
 ; Drawing the first block (Bottom up)
 DrawBlockOne:
-	MoveCursor DL,DH				
-	DisplayChar BlockSymbol
-	DEC DH
-	LOOP DrawBlockOne
+	 MoveCursor DL,DH				
+	 DisplayChar BlockSymbol
+	 DEC DH
+	 LOOP DrawBlockOne
 
 ; Preparing to draw the second obstacle
 ; Remember, The first byte is the xPos, the second byte is yPos, and the third byte is the height of the obstacle
-	MOV SI, OFFSET Block2			; Points at the first byte
-	MOV CX,0						; Clearing CX
-	MOV CL, BYTE PTR [SI + 2]		; Putting the height inside CL
-
-	MOV DL, BYTE PTR [SI]			; Putting the xPos in DL
-	MOV DH, BYTE PTR [SI] + 1		; Putting the yPos in DH
+	 MOV SI, OFFSET Block2			; Points at the first byte
+	 MOV CX,0						; Clearing CX
+	 MOV CL, BYTE PTR [SI + 2]		; Putting the height inside CL
+ 
+	 MOV DL, BYTE PTR [SI]			; Putting the xPos in DL
+	 MOV DH, BYTE PTR [SI] + 1		; Putting the yPos in DH
 
 ; Drawing the second block (Bottom up)
 DrawBlockTwo:
-	MoveCursor DL,DH
-	DisplayChar BlockSymbol
-	DEC DH
-	LOOP DrawBlockTwo
-
-; TODO: FIND A FIX FOR THE FLICKERING
-; Possible help: https://stackoverflow.com/questions/43794402/avoid-blinking-flickering-when-drawing-graphics-in-8086-real-mode
+	 MoveCursor DL,DH
+	 DisplayChar BlockSymbol
+	 DEC DH
+	 LOOP DrawBlockTwo
 
 	RET
 Draw ENDP
+
+; VR stands for "Vertical Refresh"
+waitForNewVR PROC
+ 	 MOV DX, 3DAH
+ 
+	;Wait for bit 3 to be zero (not in VR).
+	;We want to detect a 0->1 transition.
+	_WAITFOREND:
+		IN AL, DX
+		TEST AL, 08H
+		JNZ _WAITFOREND
+
+	;WAIT FOR BIT 3 TO BE ONE (IN VR)
+	_WAITFORNEW:
+		IN AL, DX
+		TEST AL, 08H
+		JZ _WAITFORNEW
+	 
+
+ 	 RET
+ 	 waitForNewVR ENDP
 
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
