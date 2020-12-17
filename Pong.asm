@@ -1,4 +1,3 @@
-.286
 DisplayChar MACRO Char
 	            PUSH AX
 	            PUSH DX
@@ -33,13 +32,13 @@ GoIntoTextMode MACRO
 
 ENDM         
 ClearScreen MACRO    
-            PUSHA ; Will cause erros in VSCode
+            PUSHALL ; Will cause erros in VSCode
             mov ax,0600h
             mov bh,07
             mov cx,0
             mov dx,184FH
             int 10h
-            POPA ; Will cause errors in VSCode 
+            POPALL ; Will cause errors in VSCode 
 ENDM              
 GetPlayerInput MACRO 
     
@@ -92,6 +91,22 @@ DisplayMessage MACRO Message
 		 MOV 			AH, 9h
 		 MOV 			DX, OFFSET Message
 		 INT 21h	
+ENDM
+
+; An alternative to POPA which doesn't work in MASM/TASM
+; Can be changed to include other registers if necessary.
+POPALL MACRO 
+	POP DX
+	POP CX
+	POP BX
+	POP AX
+ENDM
+
+PUSHALL MACRO 
+	PUSH AX
+	PUSH BX
+	PUSH CX
+	PUSH DX
 ENDM
 
 .Model SMALL
