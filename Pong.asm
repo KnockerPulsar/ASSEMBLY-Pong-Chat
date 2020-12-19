@@ -32,53 +32,13 @@ GoIntoTextMode MACRO
 
 ENDM         
 ClearScreen MACRO    
-            PUSHALL ; Will cause erros in VSCode
+            PUSHALL
             mov ax,0600h
             mov bh,07
             mov cx,0
             mov dx,184FH
             int 10h
-            POPALL ; Will cause errors in VSCode 
-ENDM              
-GetPlayerInput MACRO 
-    
-	; TODO: BOUND CHECKING SO THAT THE SLIDERS DON'T GO OFF SCREEN
-     PUSH CX
-     MOV CL, LocalY
-     MOV AH,1
-     INT 16H    
-
-	; Checks if the user pressed F4
-	; If so, goes back to the main menu
-	; TODO: SHOW THE SCORE FOR 5 SECONDS THEN GO TO THE MAIN MENU/OPTIONS MENU
-	; Note that choosing to play a game again after leaving the first one picks up exactly where the first left off
-	; Might need to keep an array of initial values to re-initialize the game again.
-	 CMP AH, 62D
-	 JZ OptionsScreen
-	
-	; Checks if the player pressed the up arrow
-	; If so, decrements the y position of the paddle (since the y axis points down)
-     CMP AH, 72D
-     JZ MoveUp
-    
-	; Same as the up check but increments the y position
-     CMP AH, 80D
-     JZ MoveDown
-
-     JMP EndInput
-     
-MoveUp:          
-       DEC CL
-       JMP EndInput
-MoveDown:            
-       INC CL                  
-       JMP EndInput
-EndInput:
-       MOV LocalY, CL
-          
-       POP CX  
-       
-       FlushKeyBuffer
+            POPALL
 ENDM              
 FlushKeyBuffer MACRO 
                 PUSH AX
@@ -114,25 +74,31 @@ ENDM
 
 .DATA
 	 ; Variables here
-	 PaddleInitialRow     DB  0CH
-	 LeftPaddleIitialCol  DB  2H
-	 RightPaddleIitialCol DB  77D
-	 Paddle               EQU "|"
+	 PlayerInitialRow     DB  0CH
+	 LeftPlayerIitialCol  DB  2H
+	 RightPlayerIitialCol DB  77D
+	 PlayerSymbol         EQU "#"
 	 BallInititLoc        DB  3D, 11D
-     Ball EQU "O"                 
+     BulletSymbol EQU "O"                 
+     PLAYER_WIDTH EQU 3
+	 PLAYER_HEIGHT EQU 2
+
+	 ; Player DB xPos, yPos, bullets, bulletsInArena
+	 PlayerOne DB 02, 12, 3, 0
+	 PlayerTwo DB 77, 12, 3, 0
      
-     
-     LocalX DB 2D
-     LocalY DB 12D
-     
-     OtherX DB 77D
-     OtherY DB 12D
-     
-     BallCurrX DB 3D
-     BallCurrY DB 11D
-     
-     BallPrevX DB ?
-     BallPrevY DB ?
+	 NumBullets EQU 2 ; Change when adding bounce bullets
+	 BulletDataSize EQU 5 ; How many bytes does a single bullet occupy
+	 Bullets LABEL BYTE
+	 ; Bullet DB xPos, yPos, xVel, yVel, active
+	 ; Can split the velocity of each bullet into a seperate "object", having it embedded is cleaner though
+	 ; Player1 bullets
+	 P1Bullet1 DB 40,12, 2,0, 0
+	 ; Bounce bullets here
+
+	 ; Player2 bullets
+	 P2Bullet1 DB 40,12, -2,0, 0
+	 ; Bounce bullets here
      
 	 ;Displayed messages
 	 Welc DB 'Please Enter Your Name:', 13, 10, '$'
@@ -255,9 +221,12 @@ MAIN PROC FAR
 	GameLoop:     
 		; Get player input    
 		; Currently only getting local player input
-		 GetPlayerInput      
+		 CALL GetPlayerInput      
+
+		; Game logic 
+		 CALL Logic
 		 
-		; Draw The paddle at their proper position, derived from player input
+		; Draw The Player at their proper position, derived from player input
 		 CALL Draw
 		 
 	     ; TODO: Move ball
@@ -272,85 +241,236 @@ MAIN PROC FAR
 
 MAIN ENDP
 
+; The main logic of the game
+Logic PROC
+	; Checking for bullet collisions with players
+	; First, check all bullets over player 1
+	; A similar loop to the drawing one
+	; If the bullet hit player one
+	; Call a procedure to incement score and reset level
+	; Then do the same for player 2
+
+	; DL carries the X coordinate (Columns), DH carries the Y coordinate (Rows)
+	LEA SI, PlayerOne
+	MOV DL, BYTE PTR [SI]                    
+	MOV CL , PLAYER_WIDTH
+
+; Need to loop every bullet over all of the player's blocks
+; Must check of course that the bullet is active
+; We'll store the bullet's x and y in BL and BH respectively
+	MOV CH, 0
+	MOV CL, NumBullets
+	LEA SI, PlayerOne
+	LEA DI, P1Bullet1
+BulletPlayer1Col:
+	MOV AL, BYTE PTR [DI + 4]
+	CMP AL, 1
+	JNZ InactiveBullet1
+	MOV BL, BYTE PTR [DI]
+	MOV BH, BYTE PTR [DI + 1]
+	; The outer loop loops over the x axis of the player
+	CheckPlayer1CollisionsX:   
+		MOV CH , PLAYER_HEIGHT
+		MOV DH , BYTE PTR [SI + 1]
+		; The inner loop loops over the y axis of the player (bottom up)
+		CheckPlayer1CollisionsY:
+			; The player's xPos and yPos are stored in DL,DH respectively
+			CMP BL,DL
+			JNZ NoP1Hit ; If the x coordinate doesn't match, bail
+			CMP BH,DH
+			JNZ NoP1Hit ; If the y coordinate doesn't match, bail
+
+			; If both the x and y coordiantes match, it's a hit!
+			; I'll cause it to abort further checking for now until we get a proper score update procedure
+			JMP EndPlayer1Checks
+
+			; Checks here
+			NoP1Hit:
+			DEC DH    
+			DEC CH
+			CMP CH, 0        
+			JNZ CheckPlayer1CollisionsY
+		DEC DL
+		DEC CL
+		CMP CL, 0     
+		JNZ CheckPlayer1CollisionsX
+
+		ADD SI, BulletDataSize
+		LOOP BulletPlayer1Col
+		InactiveBullet1:
+		EndPlayer1Checks:
+
+; Prepare to check the right Player		
+	LEA SI, PlayerTwo
+	MOV DL, BYTE PTR [SI]                     
+	MOV CL , PLAYER_WIDTH
+
+	MOV CH, 0
+	MOV CL, NumBullets
+	LEA SI, PlayerOne
+	LEA DI, P1Bullet1
+BulletPlayer2Col:
+	MOV AL, BYTE PTR [DI + 4]
+	CMP AL, 1
+	JNZ InactiveBullet2
+	MOV BL, BYTE PTR [DI]
+	MOV BH, BYTE PTR [DI + 1]
+	; The outer loop loops over the x axis of the player
+	CheckPlayer2CollisionsX:   
+		MOV CH , PLAYER_HEIGHT
+		MOV DH , BYTE PTR [SI + 1]
+		; The inner loop loops over the y axis of the player (bottom up)
+		CheckPlayer2CollisionsY:
+			; The player's xPos and yPos are stored in DL,DH respectively
+			CMP BL,DL
+			JNZ NoP2Hit ; If the x coordinate doesn't match, bail
+			CMP BH,DH
+			JNZ NoP2Hit ; If the y coordinate doesn't match, bail
+
+			; If both the x and y coordiantes match, it's a hit!
+			; I'll cause it to abort further checking for now until we get a proper score update procedure
+			JMP EndPlayer2Checks
+
+			; Checks here
+			NoP2Hit:
+			DEC DH    
+			DEC CH
+			CMP CH, 0        
+			JNZ CheckPlayer2CollisionsY
+		DEC DL
+		DEC CL
+		CMP CL, 0     
+		JNZ CheckPlayer2CollisionsX
+
+		ADD SI, BulletDataSize
+		LOOP BulletPlayer2Col
+		InactiveBullet2:
+		EndPlayer2Checks:
+
+
+; Now to move the bullets
+	MOV CH, 0
+	MOV CL, NumBullets
+	LEA SI, P1Bullet1
+MoveBullets:
+	MOV AL, BYTE PTR [SI + 4]	; Get the current bullet's active flag
+	CMP AL, 1					; Compare it to 1
+	JNZ DontMove				; If the flag is not 1 (ie. inactive), skip the drawing
+	MOV DL, BYTE PTR [SI]		; Current bullet xPos
+	MOV DH, BYTE PTR [SI + 1]   ; Current bullet yPos
+
+	CMP DL, 0
+	JL DeactivateBullet
+	CMP DL, 80
+	JG DeactivateBullet
+
+	CMP DH, 0
+	JL DeactivateBullet
+	CMP DH, 25
+	JG DeactivateBullet
+
+	JMP DontDeactivateBullet
+
+	DeactivateBullet:
+	MOV BYTE PTR [SI + 4],0 ; Setting the active flag to false
+	MOV BYTE PTR [SI], 40   ; Putting the inactive bullet in the middle
+	MOV BYTE PTR [SI + 1], 12 
+	JMP DontMove
+
+	DontDeactivateBullet:
+	MOV BL, BYTE PTR [SI + 2]	; Current bullet xVel
+	MOV BH, BYTE PTR [SI + 3]	; Current bullet yVel
+
+	ADD DL, BL
+	ADD DH, BH
+
+	; Might need some way to add a delay/ do this ever x*100 cycles
+	MOV BYTE PTR [SI], DL		; Moving the bullet on the x
+	MOV BYTE PTR [SI + 1], DH   ; Moving the bullet on the y
+	
+
+	DontMove:
+		ADD SI, BulletDataSize
+		LOOP MoveBullets
+
+	MOV BH,0 ; For some reason, without this line, the drawing goes haywire
+
+	RET
+Logic ENDP
+
 Draw PROC
-	; Draw left paddle first
-	; Move the cursor to row 0AH, column 2, output "|"
+	; Draw left Player first
+	; Move the cursor to row 0AH, column 2, output "#"
 	; Row 0BH, column 2, output
 	; Row 0CH, column 2, output
-	; Then the right paddle
-	; Same as the left paddle but move to row 77D   
+	; Then the right Player
+	; Same as the left Player but move to row 77D   
 
 	
 	; Flicker solution found at: https://stackoverflow.com/questions/43794402/avoid-blinking-flickering-when-drawing-graphics-in-8086-real-mode
+	; Comment this when using emu8086
 	CALL waitForNewVR
+	ClearScreen
 	
 	; DL carries the X coordinate (Columns), DH carries the Y coordinate (Rows)
-	MOV CX, 3D
-	MOV            DL, LocalX
-	MOV            DH, LocalY
+	LEA SI, PlayerOne
+	MOV DL, BYTE PTR [SI]                    
+	MOV CL , PLAYER_WIDTH
+DrawLeftPlayerX:   
+	MOV CH , PLAYER_HEIGHT
+	MOV DH , BYTE PTR [SI + 1]
+	DrawLeftPlayerY:
+		MoveCursor     DL,DH
+		DisplayChar    PlayerSymbol
+		DEC DH    
+		DEC CH
+		CMP CH, 0        
+		JNZ DrawLeftPlayerY
+	DEC DL
+	DEC CL
+	CMP CL, 0     
+	JNZ DrawLeftPlayerX
+
+; Prepare to draw the right Player		
+	LEA SI, PlayerTwo
+	MOV DL, BYTE PTR [SI]                     
+	MOV CL , PLAYER_WIDTH
+
+DrawRightPlayerX:   
+	MOV CH , PLAYER_HEIGHT
+	MOV DH , BYTE PTR [SI + 1]
+	DrawRightPlayerY:
+		MoveCursor     DL,DH
+		DisplayChar    PlayerSymbol
+		DEC DH    
+		DEC CH
+		CMP CH, 0        
+		JNZ DrawRightPlayerY
+	INC DL
+	DEC CL
+	CMP CL, 0     
+	JNZ DrawRightPlayerX
+
+	; Looping over all bullets
+	MOV CH, 0
+	MOV CL, NumBullets
+	LEA SI, P1Bullet1
+DrawBullets:
+	MOV AL, BYTE PTR [SI + 4]	; Get the current bullet's active flag
+	CMP AL, 1					; Compare it to 1 
+	JNZ DontDraw				; If the flag is not 1 (ie. inactive), skip the drawing
+	; If the bullet is to be drawn, we need to move the cursor to its x and y positions
+	; I'll store them in DL,DH 
+	MOV DL, BYTE PTR [SI]
+	MOV DH, BYTE PTR [SI + 1]
+	MoveCursor DL, DH
+	DisplayChar BulletSymbol
 	
-	ClearScreen
-                            
-DrawLeftPaddle:                            
-	MoveCursor     DL,DH
-	DisplayChar    Paddle
-	DEC DH            
-	LOOP DrawLeftPaddle
-
-; Prepare to draw the right paddle		
-	MOV CX, 3D                        
-	MOV            DL, OtherX
-	MOV            DH, OtherY 
-
-DrawRightPaddle:                            
-	 MoveCursor     DL,DH
-	 DisplayChar    Paddle
-	 DEC DH
-	 LOOP DrawRightPaddle             
-						
-	; Draw the ball at its current position
-	 MOV DL, BallCurrX
-	 MOV DH, BallCurrY			
-	 MoveCursor DL,DH
-	 DisplayChar Ball
-
-
-; Preparing to draw the characters/points
-; First, must point at the start or end of Block_Nums
-	 MOV SI, OFFSET Block_Nums	
-	 MOV DI,3D            ; Going to draw 3 columns, so DI = 3
-	 MOV DL, 38D          ; Starting at column 38
-
-DrawColumns:
-	 MOV CX,0             ; Just making sure that CH doesn't have any leftover bits from other operations
-	 MOV CL, 24D          ; Starting from the very bottom, will draw from the bottom up
-	 MOV BX, OFFSET chars ; Setting up BX for XLAT
+	DontDraw:
+		ADD SI, BulletDataSize
+		LOOP DrawBullets
+		
 	
-	DrawColumn:
-		 MoveCursor DL ,CL    ; START FROM COL 38, ROW 25 DRAW ASCII 178 TILL THE TOP OF THE ROW
- 
-		 MOV AL,BYTE PTR [SI] ; Moving the the current byte/number SI is pointing at into AL
-		 XLAT				 ; Converting the number into its respective character
-		 DisplayChar AL		 
- 
-		 INC SI               ; Going forward one byte
- 
-		 CMP SI, OFFSET Chars   	  ; Checking if SI has reached the end of the numbers array
-		 JNZ NOT_ZERO			  ; If not, continue as usual
- 
-		 MOV SI, OFFSET Block_Nums ; If so, reset SI to the start of the array, now it points at the first number
- 
-		 NOT_ZERO:				  
-		 DEC CL					  ; Going up one row
-		 CMP CL, 0FFH			  ; Checking if the The full column has been drawn (24 -> 0 and then an underflow)
-		 JNZ DrawColumn				
- 
-	 INC DL						  ; Next clumn
-	 DEC DI						  ; Just loop stuff
-	 CMP DI, 0					  ; Just loop stuff 2: electric boogalo
-	 JNZ DrawColumns  			  ; Looping on the 
-
-
 ; Preparing to draw the first obstacle
 ; Remember, The first byte is the xPos, the second byte is yPos, and the third byte is the height of the obstacle
 	 MOV SI, OFFSET Block1		  	; Points at the first byte
@@ -387,6 +507,7 @@ DrawBlockTwo:
 Draw ENDP
 
 ; VR stands for "Vertical Refresh"
+; Temporary solution until we get paging figured out
 waitForNewVR PROC
  	 MOV DX, 3DAH
  
@@ -406,6 +527,153 @@ waitForNewVR PROC
 
  	 RET
  	 waitForNewVR ENDP
+
+; Gets input for both players locally
+GetPlayerInput PROC
+    
+	; TODO: BOUND CHECKING SO THAT THE SLIDERS DON'T GO OFF SCREEN
+	; Checking input for P1
+     PUSH CX
+	 LEA SI, PlayerOne
+     MOV CL, BYTE PTR [SI + 1]
+     MOV AH,1
+     INT 16H    
+
+	; Checks if the user pressed F4
+	; If so, goes back to the main menu
+	; TODO: SHOW THE SCORE FOR 5 SECONDS THEN GO TO THE MAIN MENU/OPTIONS MENU
+	; Note that choosing to play a game again after leaving the first one picks up exactly where the first left off
+	; Might need to keep an array of initial values to re-initialize the game again.
+	 CMP AH, 62D
+	; So, you might wonder, why did I do this peculiar jump
+	; Well, it seems that conditional jumps (JNZ, JG, etc...) have less range than unconditional jumps (JMP)
+	; Since I converted the macro to a procedure and made it longer, the distance between the below jump and the label has grown
+	; Check this for more information: https://stackoverflow.com/questions/39427980/relative-jump-out-of-range-by
+	 JNZ SKIP_JUMP
+	 JMP OptionsScreen
+	SKIP_JUMP:
+	; Checks if player1 pressed W
+	; If so, decrements the y position of the Player (since the y axis points down)
+     CMP AH, 17D
+     JZ MoveUpP1
+    
+	; Same as the up check but increments the y position
+     CMP AH, 31D
+     JZ MoveDownP1
+     JMP EndMoveCheckP1
+     
+MoveUpP1:          
+       DEC CL
+       JMP EndMoveCheckP1
+MoveDownP1:            
+       INC CL                  
+       JMP EndMoveCheckP1
+
+EndMoveCheckP1:
+       MOV BYTE PTR [SI + 1], CL
+
+	; If P1 pressed D, check if they have any bullets in the arena
+	; If so, ignore the input
+	; Otherwise, CALL Player1Shoot
+	CMP AH, 32D
+	JNZ EndShootCheckP1 ; If the player didn't press D, don't check for bullets
+
+	LEA SI, PlayerOne
+	MOV AL, BYTE PTR [SI + 3]
+	CMP AL, 0
+	JNZ EndShootCheckP1 ; If the player has any bullets in the arena, don't shoot any more bullets
+	CALL Player1Shoot
+	EndShootCheckP1:
+; ============================================================================================================================================;
+	
+	; Checking input for P2
+	 LEA SI, PlayerTwo
+     MOV CL, BYTE PTR [SI + 1]
+     MOV AH,1
+     INT 16H    
+
+	; TODO: Check for player2 shooting, check if the player has any bullets in the arena
+	; TODO: CHECK IF THE OTHER USER PRESSED F4
+
+	; Checks if player2 pressed up arrow
+	; If so, decrements the y position of the Player (since the y axis points down)
+     CMP AH, 72D
+     JZ MoveUpP2
+    
+	; Same as the up check but increments the y position
+     CMP AH, 80D
+     JZ MoveDownP2
+
+     JMP EndInputP2
+     
+MoveUpP2:          
+       DEC CL
+       JMP EndInputP2
+MoveDownP2:            
+       INC CL                  
+       JMP EndInputP2
+
+EndInputP2:
+       MOV BYTE PTR [SI + 1], CL
+       POP CX  
+
+
+	; If P2 pressed the left arrow, check if they have any bullets in the arena
+	; If so, ignore the input
+	; Otherwise, CALL Player2Shoot
+	CMP AH, 75D
+	JNZ EndShootCheckP2 ; If the player didn't press D, don't check for bullets
+
+	LEA SI, PlayerTwo
+	MOV AL, BYTE PTR [SI + 3]
+	CMP AL, 0
+	JNZ EndShootCheckP2 ; If the player has any bullets in the arena, don't shoot any more bullets
+	CALL Player2Shoot
+
+	EndShootCheckP2:
+	       
+       FlushKeyBuffer
+	   RET
+ENDP              
+
+; If so, sets the bullet's active flag to 1, changes the location so it's right in front of the player
+; Otherwise, ignore the user's input
+Player1Shoot PROC
+	; Will be used to get the xPos and yPos of P1
+	LEA SI, PlayerOne
+	; Will be used to spawn the bullet in front of the player and set it as active
+	LEA DI, P1Bullet1
+
+	; AL = P1.xPos, AH = P1.yPos
+	MOV AL, BYTE PTR [SI]
+	MOV AH, BYTE PTR [SI + 1]
+	; Incrementing AL so that it's now in front of the player
+	INC AL
+
+	MOV BYTE PTR [DI],AL
+	MOV BYTE PTR [DI + 1], AH
+	MOV BYTE PTR [DI + 4], 1
+
+	RET
+Player1Shoot ENDP
+Player2Shoot PROC
+	; Will be used to get the xPos and yPos of P1
+	LEA SI, PlayerTwo
+	; Will be used to spawn the bullet in front of the player and set it as active
+	LEA DI, P2Bullet1
+
+	; AL = P1.xPos, AH = P1.yPos
+	MOV AL, BYTE PTR [SI]
+	MOV AH, BYTE PTR [SI + 1]
+	; Decrementing AL so that it's now in front of the player
+	DEC AL
+
+	MOV BYTE PTR [DI],AL
+	MOV BYTE PTR [DI + 1], AH
+	MOV BYTE PTR [DI + 4], 1
+
+	RET
+Player2Shoot ENDP
 
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
