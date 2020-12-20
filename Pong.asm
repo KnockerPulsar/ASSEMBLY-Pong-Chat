@@ -84,6 +84,7 @@ ENDM
 	 PLAYER_HEIGHT EQU 2
 
 	 ; Player DB xPos, yPos, bullets, bulletsInArena
+	 PLAYER_DATA_SIZE EQU 4 ; How many bytes does one player occupy in memory
 	 PlayerOne DB 02, 12, 3, 0
 	 PlayerTwo DB 77, 12, 3, 0
      
@@ -243,115 +244,101 @@ MAIN ENDP
 
 ; The main logic of the game
 Logic PROC
-	; Checking for bullet collisions with players
-	; First, check all bullets over player 1
-	; A similar loop to the drawing one
-	; If the bullet hit player one
-	; Call a procedure to incement score and reset level
-	; Then do the same for player 2
-
-	; DL carries the X coordinate (Columns), DH carries the Y coordinate (Rows)
-	LEA SI, PlayerOne
-	MOV DL, BYTE PTR [SI]                    
-	MOV CL , PLAYER_WIDTH
-
+; Checking for all bullet collisions with P1
 ; Need to loop every bullet over all of the player's blocks
-; Must check of course that the bullet is active
-; We'll store the bullet's x and y in BL and BH respectively
-	MOV CH, 0
-	MOV CL, NumBullets
 	LEA SI, PlayerOne
-	LEA DI, P1Bullet1
+	MOV DL, BYTE PTR [SI]		; DL carries the X coordinate (Columns) for P1
+	MOV DH , BYTE PTR [SI + 1]  ; DH carries the Y coordinate (Rows) for P1
+	MOV AH , PLAYER_HEIGHT
+	MOV CL, NumBullets
+	MOV CH, 0
+	LEA DI, P1Bullet1			; Starting with bullet 1
+
 BulletPlayer1Col:
-	MOV AL, BYTE PTR [DI + 4]
-	CMP AL, 1
-	JNZ InactiveBullet1
-	MOV BL, BYTE PTR [DI]
+	MOV AL, BYTE PTR [DI + 4] ; Carries the current bullet's active flag
+	CMP AL, 1				  ; Checking if the bullet is active
+	JNZ InactiveBullet1		  ; If not, skip the collision check
+	MOV BL, BYTE PTR [DI]	  ; Otherwise, load xPos and yPos into BL and BH
 	MOV BH, BYTE PTR [DI + 1]
-	; The outer loop loops over the x axis of the player
-	CheckPlayer1CollisionsX:   
-		MOV CH , PLAYER_HEIGHT
-		MOV DH , BYTE PTR [SI + 1]
-		; The inner loop loops over the y axis of the player (bottom up)
-		CheckPlayer1CollisionsY:
-			; The player's xPos and yPos are stored in DL,DH respectively
-			CMP BL,DL
-			JNZ NoP1Hit ; If the x coordinate doesn't match, bail
-			CMP BH,DH
-			JNZ NoP1Hit ; If the y coordinate doesn't match, bail
+	CMP BL, 2				  ; Checking if the bullet is near P1
+	JNE NotNearP1 			  ; If the bullet's xPos ≠ 2 (not near P1), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
+	CheckPlayer1CollisionsY:
+		CMP BH,DH	; Comparing Y coordinates
+		JNZ NoP1Hit ; If the y coordinate doesn't match, bail
 
-			; If both the x and y coordiantes match, it's a hit!
-			; I'll cause it to abort further checking for now until we get a proper score update procedure
-			JMP EndPlayer1Checks
+		; If both the x and y coordiantes match, it's a hit!
+		; I'll cause it to abort further checking for now until we get a proper score update procedure
+		JMP EndPlayer1Checks
 
-			; Checks here
-			NoP1Hit:
-			DEC DH    
-			DEC CH
-			CMP CH, 0        
-			JNZ CheckPlayer1CollisionsY
-		DEC DL
-		DEC CL
-		CMP CL, 0     
-		JNZ CheckPlayer1CollisionsX
+		; Checks here
+		NoP1Hit:
+		DEC DH					; Going 1 block up
+		DEC AH   				; Decrement the number of player blocks left to check
+		CMP AH, 0        		; If no blocks are left, on to the next bullet
+		JNZ CheckPlayer1CollisionsY
 
-		ADD SI, BulletDataSize
-		LOOP BulletPlayer1Col
-		InactiveBullet1:
-		EndPlayer1Checks:
 
-; Prepare to check the right Player		
+	InactiveBullet1:			; If the current bullet is inactive, check the next one
+	NotNearP1:					; Jump here if the bullet's xPos > 2
+	ADD DI, BulletDataSize		; Loads the next bullet's data
+	LOOP BulletPlayer1Col		; Loops to check the rest of the bullets with P1
+	EndPlayer1Checks:			; Jump here if the player was hit, TEMPORARY
+
+
+; Checking for all bullet collisions with P2
+; Need to loop every bullet over all of the player's blocks
 	LEA SI, PlayerTwo
-	MOV DL, BYTE PTR [SI]                     
-	MOV CL , PLAYER_WIDTH
-
-	MOV CH, 0
+	MOV DL, BYTE PTR [SI]		; DL carries the X coordinate (Columns) for P2
+	MOV DH , BYTE PTR [SI + 1]  ; DH carries the Y coordinate (Rows) for P2
+	MOV AH , PLAYER_HEIGHT
 	MOV CL, NumBullets
-	LEA SI, PlayerOne
-	LEA DI, P1Bullet1
+	MOV CH, 0
+	LEA DI, P1Bullet1			; Starting with bullet 1
+
 BulletPlayer2Col:
-	MOV AL, BYTE PTR [DI + 4]
-	CMP AL, 1
-	JNZ InactiveBullet2
-	MOV BL, BYTE PTR [DI]
+	MOV AL, BYTE PTR [DI + 4] ; Carries the current bullet's active flag
+	CMP AL, 1				  ; Checking if the bullet is active
+	JNZ InactiveBullet2		  ; If not, skip the collision check
+	MOV BL, BYTE PTR [DI]	  ; Otherwise, load xPos and yPos into BL and BH
 	MOV BH, BYTE PTR [DI + 1]
-	; The outer loop loops over the x axis of the player
-	CheckPlayer2CollisionsX:   
-		MOV CH , PLAYER_HEIGHT
-		MOV DH , BYTE PTR [SI + 1]
-		; The inner loop loops over the y axis of the player (bottom up)
-		CheckPlayer2CollisionsY:
-			; The player's xPos and yPos are stored in DL,DH respectively
-			CMP BL,DL
-			JNZ NoP2Hit ; If the x coordinate doesn't match, bail
-			CMP BH,DH
-			JNZ NoP2Hit ; If the y coordinate doesn't match, bail
+	CMP BL, 77				  ; Checking if the bullet is near P2
+	JNE NotNearP2			  ; If the bullet's xPos ≠ 77 (not near P2), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
+	CheckPlayer2CollisionsY:
+		CMP BH,DH	; Comparing Y coordinates
+		JNZ NoP2Hit ; If the y coordinate doesn't match, bail
 
-			; If both the x and y coordiantes match, it's a hit!
-			; I'll cause it to abort further checking for now until we get a proper score update procedure
-			JMP EndPlayer2Checks
+		; If both the x and y coordiantes match, it's a hit!
+		; I'll cause it to abort further checking for now until we get a proper score update procedure
+		JMP EndPlayer2Checks
 
-			; Checks here
-			NoP2Hit:
-			DEC DH    
-			DEC CH
-			CMP CH, 0        
-			JNZ CheckPlayer2CollisionsY
-		DEC DL
-		DEC CL
-		CMP CL, 0     
-		JNZ CheckPlayer2CollisionsX
+		; Checks here
+		NoP2Hit:
+		DEC DH					; Going 1 block up
+		DEC AH   				; Decrement the number of player blocks left to check
+		CMP AH, 0        		; If no blocks are left, on to the next bullet
+		JNZ CheckPlayer2CollisionsY
 
-		ADD SI, BulletDataSize
-		LOOP BulletPlayer2Col
-		InactiveBullet2:
-		EndPlayer2Checks:
-
+	InactiveBullet2:			; If the current bullet is inactive, check the next one
+	NotNearP2:					; Jump here if the bullet's xPos > 2
+	ADD DI, BulletDataSize		; Loads the next bullet's data
+	LOOP BulletPlayer2Col		; Loops to check the rest of the bullets with P2
+	EndPlayer2Checks:			; Jump here if the player was hit, TEMPORARY
 
 ; Now to move the bullets
+; Deactivate bullets out of bound
+; Loops on P1's bullets first, then P2's bullets
 	MOV CH, 0
 	MOV CL, NumBullets
 	LEA SI, P1Bullet1
+	LEA DI, PlayerOne 			; Used to decrement the player's bulletsInArenaFlag
+								; Assuming for now that each player has one bullet
+							    ; TODO : CHANGE NUMBULLETS OR MAKE IT DEPEND ON DATA SIZE
+	MOV AX, NumBullets			; Getting the number of bullets each player has, assuming that each player has 1/2 of the total bullets
+	MOV BL, 2
+	DIV BL
+	MOV AH,AL					; Since AL is already used
+	MOV BL, 0
+
 MoveBullets:
 	MOV AL, BYTE PTR [SI + 4]	; Get the current bullet's active flag
 	CMP AL, 1					; Compare it to 1
@@ -359,25 +346,27 @@ MoveBullets:
 	MOV DL, BYTE PTR [SI]		; Current bullet xPos
 	MOV DH, BYTE PTR [SI + 1]   ; Current bullet yPos
 
-	CMP DL, 0
+	CMP DL, 1
 	JL DeactivateBullet
-	CMP DL, 80
+	CMP DL, 79
 	JG DeactivateBullet
 
-	CMP DH, 0
+	CMP DH, 1
 	JL DeactivateBullet
-	CMP DH, 25
+	CMP DH, 24
 	JG DeactivateBullet
 
 	JMP DontDeactivateBullet
 
 	DeactivateBullet:
-	MOV BYTE PTR [SI + 4],0 ; Setting the active flag to false
+	MOV BYTE PTR [SI + 4],0 ; Setting the bullet's active flag to false
 	MOV BYTE PTR [SI], 40   ; Putting the inactive bullet in the middle
 	MOV BYTE PTR [SI + 1], 12 
+	DEC BYTE PTR [DI + 3]   ; Decrementing the player's bullets in arena
 	JMP DontMove
 
 	DontDeactivateBullet:
+	
 	MOV BL, BYTE PTR [SI + 2]	; Current bullet xVel
 	MOV BH, BYTE PTR [SI + 3]	; Current bullet yVel
 
@@ -387,9 +376,18 @@ MoveBullets:
 	; Might need some way to add a delay/ do this ever x*100 cycles
 	MOV BYTE PTR [SI], DL		; Moving the bullet on the x
 	MOV BYTE PTR [SI + 1], DH   ; Moving the bullet on the y
-	
 
 	DontMove:
+	DEC AH						
+	JNZ DontChangePlayer		; If the player has more bullets in the arena, continue checking
+	ADD DI, PLAYER_DATA_SIZE	; Otherwise, check the next player
+	MOV AX, NumBullets			; Reseting AL so it check for player2's bullets (the second half of the bullets)
+	MOV BL, 2
+	DIV BL
+	MOV AH,AL					; Cleanup
+	MOV AL,0
+	MOV BL,0
+	DontChangePlayer:
 		ADD SI, BulletDataSize
 		LOOP MoveBullets
 
@@ -653,6 +651,7 @@ Player1Shoot PROC
 	MOV BYTE PTR [DI],AL
 	MOV BYTE PTR [DI + 1], AH
 	MOV BYTE PTR [DI + 4], 1
+	MOV BYTE PTR [SI+3],1
 
 	RET
 Player1Shoot ENDP
@@ -668,9 +667,10 @@ Player2Shoot PROC
 	; Decrementing AL so that it's now in front of the player
 	DEC AL
 
-	MOV BYTE PTR [DI],AL
+	MOV BYTE PTR [DI],AL		; Spawning the bullet in front of the player
 	MOV BYTE PTR [DI + 1], AH
-	MOV BYTE PTR [DI + 4], 1
+	MOV BYTE PTR [DI + 4], 1	; Setting the bullet's active flage
+	MOV BYTE PTR [SI+3],1		; Setting the player's bulletsInArenaFlag
 
 	RET
 Player2Shoot ENDP
