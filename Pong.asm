@@ -24,8 +24,8 @@ ENDM
 GoIntoTextMode MACRO
 	               PUSH AX
 
-	               mov  ah,6
-	               mov  al,13h
+	               mov  ah,0
+	               mov  al,03h
 	               int  10h
 
 	               POP  AX
@@ -33,10 +33,12 @@ GoIntoTextMode MACRO
 ENDM         
 ClearScreen MACRO    
             PUSHALL
-            mov ax,0600h
-            mov bh,07
-            mov cx,0
-            mov dx,184FH
+            ; mov ax,0600h
+            ; mov bh,07
+            ; mov cx,0
+            ; mov dx,184FH
+			MOV AH, 0
+			MOV AL, 3
             int 10h
             POPALL
 ENDM              
@@ -94,11 +96,11 @@ ENDM
 	 ; Bullet DB xPos, yPos, xVel, yVel, active
 	 ; Can split the velocity of each bullet into a seperate "object", having it embedded is cleaner though
 	 ; Player1 bullets
-	 P1Bullet1 DB 40,12, 2,0, 0
+	 P1Bullet1 DB 40,12, 2,-2, 0
 	 ; Bounce bullets here
 
 	 ; Player2 bullets
-	 P2Bullet1 DB 40,12, -2,0, 0
+	 P2Bullet1 DB 40,12, -2,2, 0
 	 ; Bounce bullets here
      
 	 ;Displayed messages
@@ -130,7 +132,7 @@ MAIN PROC FAR
 
 	; Main Screen
 	Home:
-		 ClearScreen
+		 ;ClearScreen
 		 
 		;Display the Message in the middle of the main screen
 		;Move Cursor 
