@@ -126,7 +126,7 @@ ENDM
 	 Block2 DB 60d, 10D, 4D
 
 	; xPos, yPos pairs
-	 Cactus DB 32d,11d,10d,5d,'$'
+	 Cactus DB 32d,11d,11d,5d,'$'
 	 CactusSymbol EQU 206
 
 .CODE
@@ -291,8 +291,9 @@ Logic PROC
 							; 6- if not => go to the next cactus
  
 CactusCollisions:
+	
 	forEachBullet:					; 1- for each cactus, check all the bullets
-
+		MOV CH , 0 				  ; Will be used for jumping when checking x+1 and x
 		MOV AL, BYTE PTR [DI + 4] ; Carries the current bullet's active flag
 		CMP AL, 1				  ; Checking if the bullet is active
 		JNZ InactiveBullet		  ; If not, skip the collision check
@@ -300,11 +301,18 @@ CactusCollisions:
 		MOV BL, BYTE PTR [DI]	  ; Otherwise, load xPos and yPos into BL and BH
 		MOV BH, BYTE PTR [DI + 1]
 	
-	
-		CMP BL, [SI]				;Check if the bullet xPos is the same as a cactus xPos
+		MOV CL, BYTE PTR [SI]		; Stores the cactus's xPos
+		CMP BL, CL					;Check if the bullet xPos is the same as a cactus xPos
+		JZ ChecksStart				; If the bullet's xPos and the cactus's xPos match, got a hit, don't increment CH
+
+		INC CL						; x = x+1
+		CMP BL,CL					; If the bullet's xPos = cactus's xPos + 1, got a hit, don't increment CH
+		JZ ChecksStart
+
+		; If the bullet's xPos doesn't match neither the cactus's Xpos or Xpos + 1, no hit, check the next bullet.
 		JNZ nextBullet				; if not , check next bullet
 
-		
+ChecksStart:	
 		;if a bullet hits a cactus
 		MOV AL, [SI+1]				;get yPos of cactus
 		CMP BH, AL					; check yPos of cactus with yPos of bullet
@@ -359,8 +367,10 @@ LowerPart:
 		ADD DI, BulletDataSize		; Loads the next bullet's data
 		MOV BL, [DI]				; check if we check all the bullets
 		CMP BL, '$'					; if we checked all the bullets, go to the next cactus
-		JNZ forEachBullet			; if not continue with the current cactus
+		JZ ResetBullet				; If we finished checking all bullets, reset the current bullet, check the next cactus
+		JMP forEachBullet			; if not, continue with the current cactus
 
+	ResetBullet:					; Added this label and its repective JZ as "JNZ forEachBullet" was out of jump range
 	LEA DI, P1Bullet1				; reset the pointer to the first bullet
 
 	NextCactus:
