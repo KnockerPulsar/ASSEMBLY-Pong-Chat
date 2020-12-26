@@ -33,12 +33,8 @@ GoIntoTextMode MACRO
 ENDM         
 ClearScreen MACRO    
             PUSHALL
-            ; mov ax,0600h
-            ; mov bh,07
-            ; mov cx,0
-            ; mov dx,184FH
 			MOV AH, 0
-			MOV AL, 3
+			MOV AL, 03h
             int 10h
             POPALL
 ENDM              
@@ -72,7 +68,7 @@ PUSHALL MACRO
 ENDM
 
 .Model SMALL
-.STACK 64
+.STACK 100
 
 .DATA
 	 ; Variables here
@@ -84,7 +80,9 @@ ENDM
      BulletSymbol EQU "O"                 
      PLAYER_WIDTH EQU 3
 	 PLAYER_HEIGHT EQU 2
-
+	 CactusNum EQU 2 
+	 DynamicBlock1 DB 1
+	 DynamicBlock2 DB -1
 	 ; Player DB xPos, yPos, bullets, bulletsInArena
 	 PLAYER_DATA_SIZE EQU 4 ; How many bytes does one player occupy in memory
 	 PlayerOne DB 02, 12, 3, 0
@@ -95,30 +93,41 @@ ENDM
 	 Bullets LABEL BYTE
 	 ; Bullet DB xPos, yPos, xVel, yVel, active
 	 ; Can split the velocity of each bullet into a seperate "object", having it embedded is cleaner though
+	
+	 ;Please Make sure for now to put $ at the end of the last bullet buffer till we find out another solution
+
 	 ; Player1 bullets
-	 P1Bullet1 DB 40,12, 2,-2, 0
+	 P1Bullet1 DB 40,12, 2,0, 0
 	 ; Bounce bullets here
 
 	 ; Player2 bullets
-	 P2Bullet1 DB 40,12, -2,2, 0
+	 P2Bullet1 DB 40,12, -2,0, 0, '$'
 	 ; Bounce bullets here
      
+
 	 ;Displayed messages
 	 Welc DB 'Please Enter Your Name:', 13, 10, '$'
 	 Hel DB 'Please Enter any key to continue','$'
 	 Choices DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
 	 Info DB 13,10,'- You send a chat invitaion to ','$'
 	 userName DB 16,?, 16 DUP('$')
-	 
+	 p1Score DB "Tarek's Score : ", '$'
+	 p2Score DB "Abdelrahman's Score :", '$'
+	 endGame DB "- To end the game with Abdelrahman Press F4", '$'
 	 Block_Nums DB 6,4,1,9,6,7,3,7,7,8,8,7,9,4,1,5,3,8,5,5,6,7,7,5,1
 	 Chars DB '0','1','2','3','4','5','6','7','8','9',"10"
-
+	 authentication DB 0
+	 exiting DB 0
 
 	BlockSymbol EQU 178D
 
 	; xPos, yPos, height
 	 Block1 DB 20d, 12D, 8D
-	 Block2 DB 60d, 24D, 4D
+	 Block2 DB 60d, 10D, 4D
+
+	; xPos, yPos pairs
+	 Cactus DB 32d,11d,10d,5d,'$'
+	 CactusSymbol EQU 206
 
 .CODE
 MAIN PROC FAR
@@ -129,7 +138,8 @@ MAIN PROC FAR
 
 	; Chaning video mode
 	     GoIntoTextMode
-
+	CMP authentication, 1
+	JZ OptionsScreen
 	; Main Screen
 	Home:
 		 ;ClearScreen
@@ -167,6 +177,8 @@ MAIN PROC FAR
 
 	
 	Welcome:				;Welcome the user
+		MOV SI, OFFSET authentication
+		MOV BYTE PTR [SI], 1
 		;Move Cursor
 		 MoveCursor 0AH, 0DH
 
@@ -201,6 +213,7 @@ MAIN PROC FAR
 	Chatting:		
 		;To be Continued "D
 		;Move cursor to the footer
+
 		 MoveCursor 00H, 15H
 		
 		
@@ -229,14 +242,23 @@ MAIN PROC FAR
 		; Game logic 
 		 CALL Logic
 		 
+
+		 CALL StaticLayout
 		; Draw The Player at their proper position, derived from player input
 		 CALL Draw
 		 
 	     ; TODO: Move ball
 	     ; Might get changed depending on the game
- 
-		 Loop GameLoop
+		 LEA SI, endGame
+		 MOV BH, [SI]
+		 CMP BH, 1
 
+		 JNZ GameLoop
+
+		 LEA SI, authentication
+		 MOV BH, [SI] 
+		 CMP BH, 1
+		 JZ OptionsScreen
 	Exit:
 		; Exits the program
 		 MOV            AH, 4CH
@@ -248,6 +270,107 @@ MAIN ENDP
 Logic PROC
 ; Checking for all bullet collisions with P1
 ; Need to loop every bullet over all of the player's blocks
+	; LEA SI, PlayerOne
+	; MOV DL, BYTE PTR [SI]		; DL carries the X coordinate (Columns) for P1
+	; MOV DH , BYTE PTR [SI + 1]  ; DH carries the Y coordinate (Rows) for P1
+	; MOV AH , PLAYER_HEIGHT
+	; MOV CL, NumBullets
+	; MOV CH, 0
+	LEA DI, P1Bullet1			; Starting with bullet 1
+	LEA SI, Cactus ; To Iterate on the cactus objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the cactus
+
+
+
+; Cactus collisions logic:
+							; iterate on Cactus Buffer
+							; 1- for each cactus
+							; 2- check first bullet1
+							; 3- if the bullet hits => CactusHit
+							; 4- if not, check bullet2
+							; 5- if bullet2 hits => CactusHit
+							; 6- if not => go to the next cactus
+ 
+CactusCollisions:
+	forEachBullet:					; 1- for each cactus, check all the bullets
+
+		MOV AL, BYTE PTR [DI + 4] ; Carries the current bullet's active flag
+		CMP AL, 1				  ; Checking if the bullet is active
+		JNZ InactiveBullet		  ; If not, skip the collision check
+	
+		MOV BL, BYTE PTR [DI]	  ; Otherwise, load xPos and yPos into BL and BH
+		MOV BH, BYTE PTR [DI + 1]
+	
+	
+		CMP BL, [SI]				;Check if the bullet xPos is the same as a cactus xPos
+		JNZ nextBullet				; if not , check next bullet
+
+		
+		;if a bullet hits a cactus
+		MOV AL, [SI+1]				;get yPos of cactus
+		CMP BH, AL					; check yPos of cactus with yPos of bullet
+		JZ UpperPart				; if equal , the bullet hit the upper part , so reflect the bullet with angle 30
+		JL nextBullet				; if the bullet passed above the cactus, then no need to further ckecking
+		INC AL						; increase yPos of cactus to get the middle part
+		CMP BH, AL					; if the bullet hit the middle part
+		JZ MiddlePart				; reflect it with 0 angle
+		INC AL						; increase yPos to get the lower part
+		CMP BH, AL					; check 
+		JZ LowerPart				; if equal , the bullet hit the lower part and should be reflected with 60 angle
+		JG nextBullet				; if not, the bullet didn't hit the cactus >> go check the next bullet
+UpperPart:
+		MOV BH, [DI+2]
+		CMP BH, 0 				; if the bullet was going from right to left, make it go from left to right with 45 degree
+		JL Increase
+		MOV BH, -2				; else if the bullet was going from left to right, make it go from right to left with 45 degree
+		JMP MOVE
+	Increase:
+		MOV BH, 2
+		MOV [DI+2], BH
+		MOV BH, -2
+		MOV [DI +3], BH
+		JMP nextBullet
+	MOVE:
+		MOV [DI+2], BH
+		MOV [DI+3], BH
+		JMP nextBullet
+MiddlePart: ;reverse the sign for xVel, make the bullet go to the oppsite direction in the same horizontal line
+		MOV BH, 0
+		SUB BH, BYTE PTR [DI+2]
+		MOV [DI+2], BH
+
+		JMP nextBullet
+LowerPart:
+		MOV BH, [DI+2]
+		CMP BH, 0
+		JL Increase2
+		MOV BH, -2
+		MOV [DI+2], BH
+		MOV BH, 2
+		MOV [DI+3], BH
+		JMP nextBullet
+	Increase2:
+		MOV BH, 2
+		MOV [DI+2], BH
+		MOV [DI+3], BH
+		JMP nextBullet
+
+	InactiveBullet:			; If the current bullet is inactive, check the next one
+	nextBullet:					
+		ADD DI, BulletDataSize		; Loads the next bullet's data
+		MOV BL, [DI]				; check if we check all the bullets
+		CMP BL, '$'					; if we checked all the bullets, go to the next cactus
+		JNZ forEachBullet			; if not continue with the current cactus
+
+	LEA DI, P1Bullet1				; reset the pointer to the first bullet
+
+	NextCactus:
+		ADD SI, 2
+		MOV BL, [SI]
+		CMP BL, '$'					; if we finish checking for all cactuses
+		JZ stopIterate				; stop iterating 
+		JMP CactusCollisions		; if not, go to the next cactus
+
+stopIterate:
 	LEA SI, PlayerOne
 	MOV DL, BYTE PTR [SI]		; DL carries the X coordinate (Columns) for P1
 	MOV DH , BYTE PTR [SI + 1]  ; DH carries the Y coordinate (Rows) for P1
@@ -255,13 +378,13 @@ Logic PROC
 	MOV CL, NumBullets
 	MOV CH, 0
 	LEA DI, P1Bullet1			; Starting with bullet 1
-
 BulletPlayer1Col:
 	MOV AL, BYTE PTR [DI + 4] ; Carries the current bullet's active flag
 	CMP AL, 1				  ; Checking if the bullet is active
 	JNZ InactiveBullet1		  ; If not, skip the collision check
 	MOV BL, BYTE PTR [DI]	  ; Otherwise, load xPos and yPos into BL and BH
 	MOV BH, BYTE PTR [DI + 1]
+
 	CMP BL, 2				  ; Checking if the bullet is near P1
 	JNE NotNearP1 			  ; If the bullet's xPos ≠ 2 (not near P1), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
 	CheckPlayer1CollisionsY:
@@ -355,7 +478,7 @@ MoveBullets:
 
 	CMP DH, 1
 	JL DeactivateBullet
-	CMP DH, 24
+	CMP DH, 14
 	JG DeactivateBullet
 
 	JMP DontDeactivateBullet
@@ -393,10 +516,58 @@ MoveBullets:
 		ADD SI, BulletDataSize
 		LOOP MoveBullets
 
+	
 	MOV BH,0 ; For some reason, without this line, the drawing goes haywire
 
 	RET
 Logic ENDP
+
+StaticLayout PROC 
+	; this procedure draws the fixed layout { Till now => Chat & Players' Scores }
+
+	CALL waitForNewVR
+	ClearScreen
+
+	; Chat Upper border
+		MoveCursor 00H, 15d
+		; Loading the character, number of loops and preparing the interrupt 
+		 	MOV 			CX, 79
+		 	MOV 			AH, 2
+		 	MOV 			DL, '-'
+ 		;Draw the dashed line
+		chatWindow:
+			 INT 21h
+		 	LOOP chatWindow
+
+	; Players' Scores
+	MoveCursor 01H, 16d
+	DisplayMessage p1Score
+	MoveCursor 30H, 16d
+	DisplayMessage p2Score
+
+	; Break dashed line
+		MoveCursor 00H, 17d
+ 			 MOV 			CX, 79
+		 	MOV 			AH, 2
+		 	MOV 			DL, '-'
+ 		;Draw the dashed line
+		chatWindow2:
+			 INT 21h
+		 	LOOP chatWindow2
+	; Chat Bottom border
+		MoveCursor 00H, 23d
+			 MOV 			CX, 79
+			 MOV 			AH, 2
+			 MOV 			DL, '-'
+ 		;Draw the dashed line
+		dashline:
+			 INT 21h
+		 	LOOP dashline
+	; Info message
+		MoveCursor 03H, 24d
+		DisplayMessage endGame
+	RET
+StaticLayout ENDP
 
 Draw PROC
 	; Draw left Player first
@@ -409,8 +580,6 @@ Draw PROC
 	
 	; Flicker solution found at: https://stackoverflow.com/questions/43794402/avoid-blinking-flickering-when-drawing-graphics-in-8086-real-mode
 	; Comment this when using emu8086
-	CALL waitForNewVR
-	ClearScreen
 	
 	; DL carries the X coordinate (Columns), DH carries the Y coordinate (Rows)
 	LEA SI, PlayerOne
@@ -487,6 +656,7 @@ DrawBlockOne:
 	 DEC DH
 	 LOOP DrawBlockOne
 
+
 ; Preparing to draw the second obstacle
 ; Remember, The first byte is the xPos, the second byte is yPos, and the third byte is the height of the obstacle
 	 MOV SI, OFFSET Block2			; Points at the first byte
@@ -502,6 +672,25 @@ DrawBlockTwo:
 	 DisplayChar BlockSymbol
 	 DEC DH
 	 LOOP DrawBlockTwo
+
+MOV SI, OFFSET Cactus
+MOV CX, 0
+MOV CL, CactusNum
+DrawCactus:
+	MOV DL, [SI] 					;xPos of the upper part of the cactus
+	MOV DH, [SI+1]					;yPos of the upper part of the cactus
+
+	PUSH CX 						; we save the value of the iterate of the outer loop to be able to use CX for the two loops 
+	MOV CX, 3
+	DrawCactusBlock:				; this loop draws the 3 parts of the cactus {Upper, Middle, Lower}
+		MoveCursor DL, DH
+		DisplayChar CactusSymbol
+		INC DH
+		LOOP DrawCactusBlock
+	POP CX							; pop the outer loop iterator
+
+	ADD SI, 2						; get the next cactus
+	LOOP DrawCactus
 
 	RET
 Draw ENDP
@@ -538,7 +727,14 @@ GetPlayerInput PROC
      MOV CL, BYTE PTR [SI + 1]
      MOV AH,1
      INT 16H    
+	 
+	 CMP AH, 3Eh
+	 JNZ continue
+	 LEA SI, exiting
+	 MOV BYTE PTR [SI], 1
+	 JMP exitGame
 
+	continue:
 	; Checks if the user pressed F4
 	; If so, goes back to the main menu
 	; TODO: SHOW THE SCORE FOR 5 SECONDS THEN GO TO THE MAIN MENU/OPTIONS MENU
@@ -633,9 +829,10 @@ EndInputP2:
 	EndShootCheckP2:
 	       
        FlushKeyBuffer
+exitGame:
 	   RET
 ENDP              
-
+	
 ; If so, sets the bullet's active flag to 1, changes the location so it's right in front of the player
 ; Otherwise, ignore the user's input
 Player1Shoot PROC
@@ -655,6 +852,9 @@ Player1Shoot PROC
 	MOV BYTE PTR [DI + 4], 1
 	MOV BYTE PTR [SI+3],1
 
+	MOV BYTE PTR [DI+2],2 
+	MOV BYTE PTR [DI+3],0
+
 	RET
 Player1Shoot ENDP
 Player2Shoot PROC
@@ -673,7 +873,8 @@ Player2Shoot PROC
 	MOV BYTE PTR [DI + 1], AH
 	MOV BYTE PTR [DI + 4], 1	; Setting the bullet's active flage
 	MOV BYTE PTR [SI+3],1		; Setting the player's bulletsInArenaFlag
-
+	MOV BYTE PTR [DI+2], -2		; reset the player xVel incase it was changed by an object
+	MOV BYTE PTR [DI+3],0		; reset the player yVel incase it was changed by an object
 	RET
 Player2Shoot ENDP
 
