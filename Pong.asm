@@ -118,7 +118,6 @@ ENDM
 	 P2Bullet1 DB 40, 12, -2, 0, 0, '$'
 	 ; Bounce bullets here
      
-
 	 ;Displayed messages
 	 Welc DB 'Please Enter Your Name:', 13, 10, '$'
 	 Hel DB 'Please Enter any key to continue','$'
@@ -928,7 +927,7 @@ EndMoveCheckP1:
      INT 16H    
 
 	; TODO: Check for player2 shooting, check if the player has any bullets in the arena
-	; TODO: CHECK IF THE OTHER USER PRESSED F4
+	; TODO: CHECK IF THE OTHER USER PRESSED F4           DONE
 
 	; Checks if player2 pressed up arrow
 	; If so, decrements the y position of the Player (since the y axis points down)
@@ -946,6 +945,7 @@ MoveUpP2:
 	   CMP CL, 1
 	   JZ EndInputP2
        DEC CL
+	   skip21:
        JMP EndInputP2
 MoveDownP2:   
 	  ; Checks if PlayerTwo is moving up & out of the game boundary
