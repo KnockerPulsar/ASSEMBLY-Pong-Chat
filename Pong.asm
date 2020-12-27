@@ -101,17 +101,17 @@ ENDM
 	 ; Bounce bullets here
 
 	 ; Player2 bullets
-	 P2Bullet1 DB 40,12, -2,0, 0, '$'
+	 P2Bullet1 DB 40,12, -2,0, 0
 	 ; Bounce bullets here
      
-
+		DB '$'
 	 ;Displayed messages
 	 Welc DB 'Please Enter Your Name:', 13, 10, '$'
 	 Hel DB 'Please Enter any key to continue','$'
 	 Choices DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
 	 Info DB 13,10,'- You send a chat invitaion to ','$'
 	 userName DB 16,?, 16 DUP('$')
-	 p1Score DB "Tarek's Score : ", '$'
+	 p1Score DB "'s Score : ", '$'
 	 p2Score DB "Abdelrahman's Score :", '$'
 	 endGame DB "- To end the game with Abdelrahman Press F4", '$'
 	 Block_Nums DB 6,4,1,9,6,7,3,7,7,8,8,7,9,4,1,5,3,8,5,5,6,7,7,5,1
@@ -551,12 +551,17 @@ StaticLayout PROC
 
 	; Players' Scores
 	MoveCursor 01H, 16d
-	DisplayMessage p1Score
-	MoveCursor 30H, 16d
-	DisplayMessage p2Score
+	DisplayMessage userName+2		;since the first two bytes store the reserved size and the actual size, we need to skip these two bytes and start printing from the first char in the username
+	MOV SI, OFFSET userName
+	MOV CL, [SI+1]					; here CL holds the actual size of the username
+	INC CL							; we increase CL, to start printing after the username and avoid overwriting the last character of the username
+	MoveCursor CL, 16d				; move the cursor to be after the username
+	DisplayMessage p1Score			; print an info message {'s Score: }
+	MoveCursor 30H, 16d				; move the cursor to the right most side to print the other message
+	DisplayMessage p2Score			; print the other player message {Player2's Score}
 
 	; Break dashed line
-		MoveCursor 00H, 17d
+		MoveCursor 00H, 17d				
  			 MOV 			CX, 79
 		 	MOV 			AH, 2
 		 	MOV 			DL, '-'
@@ -768,11 +773,17 @@ GetPlayerInput PROC
      JZ MoveDownP1
      JMP EndMoveCheckP1
      
-MoveUpP1:          
+MoveUpP1:    
+		CMP CL, 1					; check if the player riched the upper border
+		JZ skip11					; don't make it move
        DEC CL
-       JMP EndMoveCheckP1
-MoveDownP1:            
-       INC CL                  
+       skip11:
+	   	JMP EndMoveCheckP1
+MoveDownP1:
+		CMP CL, 14d					; check if the player riched the bottom border
+		JZ skip12					; don't make it move
+       INC CL
+	   skip12:                  
        JMP EndMoveCheckP1
 
 EndMoveCheckP1:
@@ -799,7 +810,7 @@ EndMoveCheckP1:
      INT 16H    
 
 	; TODO: Check for player2 shooting, check if the player has any bullets in the arena
-	; TODO: CHECK IF THE OTHER USER PRESSED F4
+	; TODO: CHECK IF THE OTHER USER PRESSED F4           DONE
 
 	; Checks if player2 pressed up arrow
 	; If so, decrements the y position of the Player (since the y axis points down)
@@ -812,11 +823,17 @@ EndMoveCheckP1:
 
      JMP EndInputP2
      
-MoveUpP2:          
+MoveUpP2:
+		CMP CL, 1				; check if the player riched the upper border
+		JZ skip21				; don't make it move
        DEC CL
+	   skip21:
        JMP EndInputP2
-MoveDownP2:            
-       INC CL                  
+MoveDownP2:
+		CMP CL, 14d				; check if the player riched the bottom border
+		JZ skip22				; don't make it move
+       INC CL
+	   skip22:              
        JMP EndInputP2
 
 EndInputP2:
