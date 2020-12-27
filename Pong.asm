@@ -36,6 +36,11 @@ ClearScreen MACRO
 			MOV AH, 0
 			MOV AL, 03h
             int 10h
+			; Code for Hding the blinking Text cursor
+			; Looks bad when drawing the game every cycle
+			MOV CH, 20H 
+			MOV AH, 01H
+			INT 10H
             POPALL
 ENDM              
 FlushKeyBuffer MACRO 
@@ -49,6 +54,12 @@ DisplayMessage MACRO Message
 		 MOV 			AH, 9h
 		 MOV 			DX, OFFSET Message
 		 INT 21h	
+ENDM
+HideCursor MACRO 
+	mov ch, 32
+ 	mov ah, 1
+ 	int 10h 
+
 ENDM
 
 ; An alternative to POPA which doesn't work in MASM/TASM
@@ -83,6 +94,9 @@ ENDM
 	 CactusNum EQU 2 
 	 DynamicBlock1 DB 1
 	 DynamicBlock2 DB -1
+	 ; Player Scores
+	 PlayerOneScore DB 30H
+	 PlayerTwoScore DB 30H
 	 ; Player DB xPos, yPos, bullets, bulletsInArena
 	 PLAYER_DATA_SIZE EQU 4 ; How many bytes does one player occupy in memory
 	 PlayerOne DB 02, 12, 3, 0
@@ -97,11 +111,11 @@ ENDM
 	 ;Please Make sure for now to put $ at the end of the last bullet buffer till we find out another solution
 
 	 ; Player1 bullets
-	 P1Bullet1 DB 40,12, 2,0, 0
+	 P1Bullet1 DB 40, 12, 2, 0, 0
 	 ; Bounce bullets here
 
 	 ; Player2 bullets
-	 P2Bullet1 DB 40,12, -2,0, 0, '$'
+	 P2Bullet1 DB 40, 12, -2, 0, 0, '$'
 	 ; Bounce bullets here
      
 
@@ -111,9 +125,16 @@ ENDM
 	 Choices DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
 	 Info DB 13,10,'- You send a chat invitaion to ','$'
 	 userName DB 16,?, 16 DUP('$')
+	 userNameScore DB "'s Score : ", '$'
+	 userName2 DB "Abdelrahman", '$' ; Fixed at Abdelrahman for now but should be whatever User types in chatting screen
 	 p1Score DB "Tarek's Score : ", '$'
 	 p2Score DB "Abdelrahman's Score :", '$'
-	 endGame DB "- To end the game with Abdelrahman Press F4", '$'
+	 endGame DB "- To end the game with Abdelrahman, Press F4", '$'
+	 endGame1 DB "- To end the game with ", '$'
+	 endGame2 DB ", Press F4", '$'
+	 WinCondition DB " Wins with score: " , '$'
+	 WinScore DB " To ", '$'
+	 Test1 DB "Test", '$'
 	 Block_Nums DB 6,4,1,9,6,7,3,7,7,8,8,7,9,4,1,5,3,8,5,5,6,7,7,5,1
 	 Chars DB '0','1','2','3','4','5','6','7','8','9',"10"
 	 authentication DB 0
@@ -138,6 +159,7 @@ MAIN PROC FAR
 
 	; Chaning video mode
 	     GoIntoTextMode
+
 	CMP authentication, 1
 	JZ OptionsScreen
 	; Main Screen
@@ -193,7 +215,6 @@ MAIN PROC FAR
 		 ClearScreen
 		;Move Cursor
 		 MoveCursor 18H, 0AH
-
 		;Display Options
 		 DisplayMessage Choices
 			
@@ -203,12 +224,19 @@ MAIN PROC FAR
 		 INT 16h
 		
 		;Check user's input
-		 CMP AH, 1   		; Check for ESC
-		 JZ Exit
-		 CMP AH, 3Ch 		; Check for F2
-		 JZ GameLoop
-		 CMP AH, 3Bh 		; Check for F1
-		 JNZ CHS 			; if the pressed key not an option, loop till it is
+		 CMP AH, 1   		       ; Check for ESC
+		 JNZ NotExit
+		 JMP Exit
+		 NotExit:
+		 CMP AH, 3Ch 		       ; Check for F2
+		 JNZ NotF2
+		 CALL ResetRound           ; Reset the player positions
+		 MOV PlayerOneScore, 30H   ; Reset both players' scores
+		 MOV PlayerTwoScore, 30H
+		 JMP GameLoop
+		 NotF2:
+		 CMP AH, 3Bh 		       ; Check for F1
+		 JNZ CHS 			       ; if the pressed key not an option, loop till it is
 
 	Chatting:		
 		;To be Continued "D
@@ -234,9 +262,27 @@ MAIN PROC FAR
 		 INT 16h
 		 JMP Exit
 		
-	GameLoop:     
+	GameLoop:    
+
+		; Check if Any player Won
+
+		MOV AL, PlayerOneScore
+		MOV AH, PlayerTwoScore
+		CMP AL, 35H
+		JNZ Skip
+		CALL WinScreen
+		JMP OptionsScreen
+		JMP Skiip
+		Skip:
+		CMP AH, 35H
+		JNZ Skiip
+		CALL WinScreen
+		JMP OptionsScreen
+		SKiip:
+
 		; Get player input    
 		; Currently only getting local player input
+
 		 CALL GetPlayerInput      
 
 		; Game logic 
@@ -245,6 +291,8 @@ MAIN PROC FAR
 
 		 CALL StaticLayout
 		; Draw The Player at their proper position, derived from player input
+
+
 		 CALL Draw
 		 
 	     ; TODO: Move ball
@@ -258,7 +306,9 @@ MAIN PROC FAR
 		 LEA SI, authentication
 		 MOV BH, [SI] 
 		 CMP BH, 1
-		 JZ OptionsScreen
+		 JNZ DONTDOIT
+		 JMP OptionsScreen
+		 DONTDOIT:
 	Exit:
 		; Exits the program
 		 MOV            AH, 4CH
@@ -276,6 +326,10 @@ Logic PROC
 	; MOV AH , PLAYER_HEIGHT
 	; MOV CL, NumBullets
 	; MOV CH, 0
+
+; Check whether both players ran out of bullets and they have no bullets in arena
+; If so, reset round
+
 	LEA DI, P1Bullet1			; Starting with bullet 1
 	LEA SI, Cactus ; To Iterate on the cactus objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the cactus
 
@@ -396,12 +450,28 @@ BulletPlayer1Col:
 	MOV BH, BYTE PTR [DI + 1]
 
 	CMP BL, 2				  ; Checking if the bullet is near P1
-	JNE NotNearP1 			  ; If the bullet's xPos ≠ 2 (not near P1), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
+	JA NotNearP1 			  ; If the bullet's xPos ≠ 2 (not near P1), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
 	CheckPlayer1CollisionsY:
-		CMP BH,DH	; Comparing Y coordinates
+		;Check First Player Row
+		CMP BH, DH	; Comparing Y coordinates
 		JNZ NoP1Hit ; If the y coordinate doesn't match, bail
-
 		; If both the x and y coordiantes match, it's a hit!
+		ADD PlayerTwoScore, 1 ;Add one to the other player's score
+		MOV BYTE PTR [DI + 4], 00D       ;Deactivate this bullet's active flag
+		MOV BYTE PTR [DI], 40D
+		MOV BYTE PTR [DI + 1], 12D
+		; Move the bullet to the middle
+		; Check whether this buller belongs to P1 or P2
+		CMP CL, 2        ;If CL = 2, it's bullet one belonging to player one
+		JNZ P2
+		DEC BYTE PTR [SI + 3]     ;So, decrement player one's bullet count in the arena
+		JMP EndDecrement1
+		P2:
+		LEA SI, PlayerTwo ; Otherwise, load P2 in SI , decrement his bullet count then load P1 is SI again 
+		DEC BYTE PTR [SI + 3]
+		LEA SI, PlayerOne
+		EndDecrement1:
+		CALL ResetRound
 		; I'll cause it to abort further checking for now until we get a proper score update procedure
 		JMP EndPlayer1Checks
 
@@ -437,12 +507,26 @@ BulletPlayer2Col:
 	MOV BL, BYTE PTR [DI]	  ; Otherwise, load xPos and yPos into BL and BH
 	MOV BH, BYTE PTR [DI + 1]
 	CMP BL, 77				  ; Checking if the bullet is near P2
-	JNE NotNearP2			  ; If the bullet's xPos ≠ 77 (not near P2), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
+	JB NotNearP2			  ; If the bullet's xPos ≠ 77 (not near P2), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
 	CheckPlayer2CollisionsY:
 		CMP BH,DH	; Comparing Y coordinates
 		JNZ NoP2Hit ; If the y coordinate doesn't match, bail
-
 		; If both the x and y coordiantes match, it's a hit!
+		ADD PlayerOneScore, 1
+		MOV BYTE PTR [DI + 4], 0D ; Setting the bullet's active flag to false
+		MOV BYTE PTR [DI], 40D    ; Putting the inactive bullet in the middle
+		MOV BYTE PTR [DI + 1], 12D 
+		; Check whether this bullet belongs to P1 or P2
+		CMP CL, 2        ;If CL = 2, it's bullet one belonging to player one
+		JZ P1           ; decrement player one's bullet count
+		DEC BYTE PTR [SI + 3]     ; Otherwise, decrement player two's bullet count
+		JMP EndDecrement2
+		P1:
+		LEA SI, PlayerOne ; Otherwise, load P1 in SI , decrement his bullet count then load P2 is SI again 
+		DEC BYTE PTR [SI + 3]
+		LEA SI, PlayerTwo
+		EndDecrement2:
+		CALL ResetRound
 		; I'll cause it to abort further checking for now until we get a proper score update procedure
 		JMP EndPlayer2Checks
 
@@ -488,13 +572,13 @@ MoveBullets:
 
 	CMP DH, 1
 	JL DeactivateBullet
-	CMP DH, 14
+	CMP DH, 15
 	JG DeactivateBullet
 
 	JMP DontDeactivateBullet
 
 	DeactivateBullet:
-	MOV BYTE PTR [SI + 4],0 ; Setting the bullet's active flag to false
+	MOV BYTE PTR [SI + 4], 0 ; Setting the bullet's active flag to false
 	MOV BYTE PTR [SI], 40   ; Putting the inactive bullet in the middle
 	MOV BYTE PTR [SI + 1], 12 
 	DEC BYTE PTR [DI + 3]   ; Decrementing the player's bullets in arena
@@ -529,6 +613,20 @@ MoveBullets:
 	
 	MOV BH,0 ; For some reason, without this line, the drawing goes haywire
 
+	; After all the logic is done, Check if all bullets are out of the screen and both players have run out of bullets
+	LEA SI, PlayerOne
+	LEA DI, PlayerTwo
+	CMP BYTE PTR [SI + 2], 0
+	JNZ NotOutOfBullets
+	CMP BYTE PTR [SI + 3], 0
+	JNZ NotOutOfBullets
+	CMP BYTE PTR [DI + 2], 0
+	JNZ NotOutOfBullets
+	CMP BYTE PTR [DI + 3], 0
+	JNZ NotOutOfBullets
+	CALL ResetRound
+	NotOutOfBullets:
+
 	RET
 Logic ENDP
 
@@ -539,9 +637,9 @@ StaticLayout PROC
 	ClearScreen
 
 	; Chat Upper border
-		MoveCursor 00H, 15d
+		MoveCursor 00H, 16d
 		; Loading the character, number of loops and preparing the interrupt 
-		 	MOV 			CX, 79
+		 	MOV 			CX, 80
 		 	MOV 			AH, 2
 		 	MOV 			DL, '-'
  		;Draw the dashed line
@@ -550,14 +648,30 @@ StaticLayout PROC
 		 	LOOP chatWindow
 
 	; Players' Scores
-	MoveCursor 01H, 16d
-	DisplayMessage p1Score
-	MoveCursor 30H, 16d
-	DisplayMessage p2Score
+	; This code Displays the first player's score
+	MoveCursor 01H, 17d
+	LEA SI, userName
+	ADD SI, 2
+	DisplayMessage SI
+	DEC SI
+	MOV AL, 01D
+	ADD AL, [SI]
+	MoveCursor AL, 17D
+	DisplayMessage UserNameScore ; Length of UserNameScore is 11D
+	Add Al, 11D
+	MoveCursor Al, 17D
+	DisplayChar PlayerOneScore
+	MoveCursor 30H, 17d
+	DisplayMessage userName2
+	MOV AL, 30H 
+	ADD AL, 11D ;This should be length of userName2 Which is fixed at Abdelrahman For Now
+	DisplayMessage UserNameScore
+	ADD AL, 11D
+	DisplayChar PlayerTwoScore
 
 	; Break dashed line
-		MoveCursor 00H, 17d
- 			 MOV 			CX, 79
+		MoveCursor 00H, 18d
+ 			MOV 			CX, 80
 		 	MOV 			AH, 2
 		 	MOV 			DL, '-'
  		;Draw the dashed line
@@ -566,7 +680,7 @@ StaticLayout PROC
 		 	LOOP chatWindow2
 	; Chat Bottom border
 		MoveCursor 00H, 23d
-			 MOV 			CX, 79
+			 MOV 			CX, 80
 			 MOV 			AH, 2
 			 MOV 			DL, '-'
  		;Draw the dashed line
@@ -575,7 +689,16 @@ StaticLayout PROC
 		 	LOOP dashline
 	; Info message
 		MoveCursor 03H, 24d
-		DisplayMessage endGame
+		DisplayMessage endGame1
+		; Length of endGame1 Message is 23D, Length of userName2 is 11D
+		; Length of engGame2 Message is 10D
+		MOV AL, 03H
+		ADD AL, 23D
+		MoveCursor AL, 24D
+		DisplayMessage userName2
+		ADD AL, 11D
+		MoveCursor AL, 24D
+		DisplayMessage endGame2
 	RET
 StaticLayout ENDP
 
@@ -590,7 +713,6 @@ Draw PROC
 	
 	; Flicker solution found at: https://stackoverflow.com/questions/43794402/avoid-blinking-flickering-when-drawing-graphics-in-8086-real-mode
 	; Comment this when using emu8086
-	
 	; DL carries the X coordinate (Columns), DH carries the Y coordinate (Rows)
 	LEA SI, PlayerOne
 	MOV DL, BYTE PTR [SI]                    
@@ -729,8 +851,6 @@ waitForNewVR PROC
 
 ; Gets input for both players locally
 GetPlayerInput PROC
-    
-	; TODO: BOUND CHECKING SO THAT THE SLIDERS DON'T GO OFF SCREEN
 	; Checking input for P1
      PUSH CX
 	 LEA SI, PlayerOne
@@ -768,10 +888,16 @@ GetPlayerInput PROC
      JZ MoveDownP1
      JMP EndMoveCheckP1
      
-MoveUpP1:          
+MoveUpP1:    
+	  ; Checks if PlayerOne is moving up & out of the game boundary
+	   CMP CL, 1
+	   JZ EndMoveCheckP1
        DEC CL
        JMP EndMoveCheckP1
-MoveDownP1:            
+MoveDownP1:     
+	  ; Checks if PlayerOne is moving down & out of the game boundary
+	   CMP CL, 15D
+	   JZ EndMoveCheckP1
        INC CL                  
        JMP EndMoveCheckP1
 
@@ -788,6 +914,9 @@ EndMoveCheckP1:
 	MOV AL, BYTE PTR [SI + 3]
 	CMP AL, 0
 	JNZ EndShootCheckP1 ; If the player has any bullets in the arena, don't shoot any more bullets
+	MOV AL, BYTE PTR[SI + 2]
+	CMP AL, 0
+	JZ EndShootCheckP1  ; If the player has no bullets left to shoot, don't shoot
 	CALL Player1Shoot
 	EndShootCheckP1:
 ; ============================================================================================================================================;
@@ -812,10 +941,16 @@ EndMoveCheckP1:
 
      JMP EndInputP2
      
-MoveUpP2:          
+MoveUpP2:     
+	  ; Checks if PlayerTwo is moving up & out of the game boundary
+	   CMP CL, 1
+	   JZ EndInputP2
        DEC CL
        JMP EndInputP2
-MoveDownP2:            
+MoveDownP2:   
+	  ; Checks if PlayerTwo is moving up & out of the game boundary
+	   CMP CL, 15D
+	   JZ EndInputP2
        INC CL                  
        JMP EndInputP2
 
@@ -834,6 +969,9 @@ EndInputP2:
 	MOV AL, BYTE PTR [SI + 3]
 	CMP AL, 0
 	JNZ EndShootCheckP2 ; If the player has any bullets in the arena, don't shoot any more bullets
+	MOV AL, BYTE PTR[SI + 2]
+	CMP AL, 0
+	JZ EndShootCheckP2  ; If the player has no bullets left to shoot, don't shoot
 	CALL Player2Shoot
 
 	EndShootCheckP2:
@@ -854,6 +992,7 @@ Player1Shoot PROC
 	; AL = P1.xPos, AH = P1.yPos
 	MOV AL, BYTE PTR [SI]
 	MOV AH, BYTE PTR [SI + 1]
+	DEC BYTE PTR[SI + 2]      ; Decrease the player's bullet stash by 1
 	; Incrementing AL so that it's now in front of the player
 	INC AL
 
@@ -873,9 +1012,10 @@ Player2Shoot PROC
 	; Will be used to spawn the bullet in front of the player and set it as active
 	LEA DI, P2Bullet1
 
-	; AL = P1.xPos, AH = P1.yPos
+	; AL = P2.xPos, AH = P2.yPos
 	MOV AL, BYTE PTR [SI]
 	MOV AH, BYTE PTR [SI + 1]
+	DEC BYTE PTR [SI + 2]     ; Decrease the player's bullet stash by 1
 	; Decrementing AL so that it's now in front of the player
 	DEC AL
 
@@ -887,6 +1027,109 @@ Player2Shoot PROC
 	MOV BYTE PTR [DI+3],0		; reset the player yVel incase it was changed by an object
 	RET
 Player2Shoot ENDP
+
+ResetRound PROC
+	; Load PlayerOne and Reset it's positions, Numbullets and bullet count
+	LEA SI, PlayerOne
+	MOV AL, LeftPlayerIitialCol
+	MOV BYTE PTR [SI], AL
+	MOV AL, PlayerInitialRow
+	MOV BYTE PTR [SI + 1], AL
+	MOV BYTE PTR [SI + 2], 3
+	MOV BYTE PTR [SI + 3], 0
+	; Load Player Two and Do the same
+	LEA SI, PlayerTwo
+	MOV AL, RightPlayerIitialCol
+	MOV BYTE PTR [SI], AL
+	MOV AL, PlayerInitialRow
+	MOV BYTE PTR [SI + 1], AL
+	MOV BYTE PTR [SI + 2], 3
+	MOV BYTE PTR [SI + 3], 0
+	; Now loop on all bullets in the arena that are active and deactivate them
+	LEA DI, P1Bullet1 ; Starting with Bullet 1
+	MOV CL, NumBullets
+	MOV CH, 00D
+	GetToWork:
+	MOV BYTE PTR [DI], 40D
+	MOV BYTE PTR [DI + 1], 12D
+	MOV BYTE PTR [DI + 4], 0
+	ADD DI, BulletDataSize
+	LOOP GetToWork
+	RET
+ResetRound ENDP
+
+WinScreen PROC 
+	ClearScreen
+	; Test 1
+	MOV DL, 9D
+	Loopy:
+	MOV DH, 80D
+	Loopx:
+	DisplayChar " "
+	DEC DH
+	JNZ Loopx
+	DEC DL
+	JNZ Loopy
+	MOV AH, AL
+	ADD AH, 10
+	Final:
+	DisplayChar " "
+	DEC DH
+	JNZ Final
+
+	MOV AL, 40D
+	MoveCursor AL, 12D
+	CMP PlayerOneScore, 35H         ; Check if the winner is P1
+	JZ SKIP1
+	JMP Player2
+	SKIP1:
+	LEA SI, userName
+	DisplayMessage SI             ;I don't know why this won't work
+	ADD AL, [SI - 1]
+	MoveCursor AL, 12D
+	DisplayMessage WinCondition
+	ADD AL, 18D
+	MoveCursor AL, 12D
+	DisplayChar PlayerOnescore
+	ADD AL, 1D
+	MoveCursor AL, 12D
+	DisplayMessage WinScore
+	ADD AL, 4D
+	MoveCursor AL, 12D
+	DisplayChar PlayerTwoScore
+	JMP SKIP2
+
+	Player2:
+
+	LEA SI, userName2
+	;ADD SI, 2         ;userName2 is fixed for now but will be needed when it's variable
+	DisplayMessage SI
+	;ADD AL, [SI - 1]  ;Same as above
+	ADD AL, 11D
+	MoveCursor AL, 12D
+	DisplayMessage WinCondition
+	ADD AL, 18D
+	MoveCursor AL, 12D
+	DisplayChar PlayerOnescore
+	ADD AL, 1D
+	MoveCursor AL, 12D
+	DisplayMessage WinScore
+	ADD AL, 4D
+	MoveCursor AL, 12D
+	DisplayChar PlayerTwoScore
+SKIP2:
+	MOV AH, 02H
+	INT 1AH
+	MOV AL, DH
+	ADD AL, 5D
+Time:
+	MOV AH, 02H
+	INT 1AH
+	CMP AL, DH
+	JAE Time
+
+	RET
+WinScreen ENDP
 
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
