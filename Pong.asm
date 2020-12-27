@@ -104,7 +104,7 @@ ENDM
 	 P2Bullet1 DB 40,12, -2,0, 0
 	 ; Bounce bullets here
      
-		DB '$'
+	 DB '$'
 	 ;Displayed messages
 	 Welc DB 'Please Enter Your Name:', 13, 10, '$'
 	 Hel DB 'Please Enter any key to continue','$'
@@ -138,12 +138,12 @@ MAIN PROC FAR
 
 	; Chaning video mode
 	     GoIntoTextMode
-	CMP authentication, 1
-	JZ OptionsScreen
+
 	; Main Screen
 	Home:
+		
 		 ;ClearScreen
-		 
+		 ClearScreen
 		;Display the Message in the middle of the main screen
 		;Move Cursor 
 		 MoveCursor 0AH, 0AH
@@ -177,8 +177,7 @@ MAIN PROC FAR
 
 	
 	Welcome:				;Welcome the user
-		MOV SI, OFFSET authentication
-		MOV BYTE PTR [SI], 1
+
 		;Move Cursor
 		 MoveCursor 0AH, 0DH
 
@@ -189,7 +188,7 @@ MAIN PROC FAR
 		 MOV 			AH, 0
 		 INT 16h
 
-	OptionsScreen:
+	OptionsWindow:
 		 ClearScreen
 		;Move Cursor
 		 MoveCursor 18H, 0AH
@@ -249,16 +248,15 @@ MAIN PROC FAR
 		 
 	     ; TODO: Move ball
 	     ; Might get changed depending on the game
-		 LEA SI, endGame
+
+		 ;Check if the player pressed F4
+		 LEA SI, exiting
 		 MOV BH, [SI]
 		 CMP BH, 1
 
-		 JNZ GameLoop
-
-		 LEA SI, authentication
-		 MOV BH, [SI] 
-		 CMP BH, 1
-		 JZ OptionsScreen
+		 JNZ GameLoop		; if not continue the game
+							; else return to options window
+		 JZ OptionsWindow
 	Exit:
 		; Exits the program
 		 MOV            AH, 4CH
@@ -734,8 +732,6 @@ waitForNewVR PROC
 
 ; Gets input for both players locally
 GetPlayerInput PROC
-    
-	; TODO: BOUND CHECKING SO THAT THE SLIDERS DON'T GO OFF SCREEN
 	; Checking input for P1
      PUSH CX
 	 LEA SI, PlayerOne
@@ -743,25 +739,24 @@ GetPlayerInput PROC
      MOV AH,1
      INT 16H    
 	 
-	 CMP AH, 3Eh
-	 JNZ continue
-	 LEA SI, exiting
+
+	 CMP AH, 3Eh				; Checks if the user pressed F4
+	 JNZ continue				; if not, continue searching for the pressed key
+	 LEA SI, exiting			; if he pressed, set this flag to 1 so we can use it in the main program to direct the user to Options Window
 	 MOV BYTE PTR [SI], 1
-	 JMP exitGame
+	 JMP exitGame				; exit this procedure
 
 	continue:
-	; Checks if the user pressed F4
+	
 	; If so, goes back to the main menu
 	; TODO: SHOW THE SCORE FOR 5 SECONDS THEN GO TO THE MAIN MENU/OPTIONS MENU
 	; Note that choosing to play a game again after leaving the first one picks up exactly where the first left off
 	; Might need to keep an array of initial values to re-initialize the game again.
-	 CMP AH, 62D
+
 	; So, you might wonder, why did I do this peculiar jump
 	; Well, it seems that conditional jumps (JNZ, JG, etc...) have less range than unconditional jumps (JMP)
 	; Since I converted the macro to a procedure and made it longer, the distance between the below jump and the label has grown
 	; Check this for more information: https://stackoverflow.com/questions/39427980/relative-jump-out-of-range-by
-	 JNZ SKIP_JUMP
-	 JMP OptionsScreen
 	SKIP_JUMP:
 	; Checks if player1 pressed W
 	; If so, decrements the y position of the Player (since the y axis points down)
