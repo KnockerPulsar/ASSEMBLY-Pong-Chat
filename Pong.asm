@@ -36,7 +36,7 @@ ClearScreen MACRO
 	 MOV AH, 0
 	 MOV AL, 03h
 	 int 10h
-	 ; Code for Hding the blinking Text cursor
+	 ; Code for Hiding the blinking Text cursor
 	 ; Looks bad when drawing the game every cycle
 	 MOV CH, 20H 
 	 MOV AH, 01H
@@ -119,6 +119,21 @@ ENDM
 	 Cactus       			DB 32d,11d,11d,5d,'$'
 	 CactusSymbol 			EQU 206
      
+	; Barrel data
+	; =============================================================================================
+	; xPos, yPos pairs Will be changed later to -> xPos, yPos, Height
+	 BarrelNum 				EQU 2
+	 Barrel 				DB 40d,4d,50d,1d,'$'
+	 ;Barrel 				DB 40d,4d,2d,50d,1d,3d,'$' ->(xPos, yPos, Height)
+	 BarrelSymbol 			EQU 178
+
+	; StonePile data
+	; =============================================================================================
+	; xPos, yPos pairs
+	 StonePileNum 			EQU 2
+	 StonePile 				DB 60d,15d,12d,10d,'$'
+	 StonePileSymbol 		EQU 234
+	 
 	; Displayed messages
 	; =============================================================================================
 	 Welc          			DB 'Please Enter Your Name:', 13, 10, '$'
@@ -406,6 +421,86 @@ LowerPart:
 	
 CactusColls ENDP
 
+BarrelColls PROC
+; =================================================================================================
+;  Barrel Collisions Checks
+; =================================================================================================
+
+	 LEA SI, Barrel 										; To Iterate on the barrel objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the top of the barrel
+
+StartFromBullet1:
+	 LEA DI, P1Bullet1			 							; Starting with bullet 1
+BarrelCollisions:
+		 MOV BL, BYTE PTR [DI + 4] 							; Carries the current bullet's active flag
+		 CMP BL, 1				  							; Checking if the bullet is active
+		 JNZ GetBullet			  							; If not, skip the collision check
+
+		 MOV BL, BYTE PTR [DI+2]							;If the xVelo = 1, then do nothing and get the next bullet
+		 CMP BL, 1
+		 JZ GetBullet
+		 CMP BL, -1											;If the xVelo = -1, then do nothing and get the next bullet
+		 JZ GetBullet
+
+		 ;General Case: Collision occurs if xPos Bullet <= xPos Barrel <= xPos + xVel Bullet && yPos Bullet <= yPos Barrel <= yPos + yVel Bullet
+		 ;For now implement the case where the bullet is straight
+		 MOV BL, BYTE PTR [DI]								;Get the xPos of the bullet
+		 MOV BH, BYTE PTR [SI]								;Get the xPos of the barrel
+		 CMP BL,BH
+		 JZ CheckYColli
+		 INC BH
+		 CMP BL,BH
+		 JNZ GetBullet
+
+	CheckYColli:
+		 MOV BL, BYTE PTR [DI+1]
+		 MOV BH, BYTE PTR [SI+1]
+		 CMP BL,BH
+		 JL GetBullet
+		 ADD BH, 2											; 2 here is the height can be inputed as a variable in the barrel's data instead
+		 ;MOV DL, BYTE PTR[SI+2]
+		 ;ADD BH, DL 											;In case of length variable
+		 CMP BL,BH
+		 JG GetBullet
+;       ----------------------------Barrel Parts Logic when hit -----------------------------------    ;
+		 MOV AL,  BYTE PTR [DI+2]
+		 CMP AL,0											;Check if the xVel is negative to be able to divide it properly
+		 JL NegativeSpeedx
+		 MOV AH,0											;Make AX a positive number
+		 JMP CalcX
+	NegativeSpeedx:
+		 MOV AH,0FFh										;Make AX a negative number
+	CalcX:
+		 MOV BL,2											;Decreasing the velocity to half its value
+		 IDIV BL											;Used IDIV instead of DIV since the xVel is signed
+		 MOV [DI+2], AL										;Assigning the xVel its new value
+
+		 MOV AL,  BYTE PTR [DI+3]
+		 CMP AL,0											;Check if the xVel is negative to be able to divide it properly
+		 JL NegativeSpeedy
+		 MOV AH,0											;Make AX a positive number
+		 JMP CalcY
+	NegativeSpeedy:
+		 MOV AH,0FFh										;Make AX a negative number
+	CalcY:
+		 MOV BL,2											;Decreasing the velocity to half its value
+		 IDIV BL											;Used IDIV instead of DIV since the xVel is signed
+		 MOV [DI+3], AL										;Assigning the xVel its new value
+		 GetBullet:					
+		 ADD DI, BulletDataSize								; Loads the next bullet's data
+		 MOV BL, [DI]									
+		 CMP BL, '$'										
+		 JZ NextBarrel										; If we finished checking all bullets, reset the current bullet, check the next barrel
+		 JMP BarrelCollisions								; else, continue with the current barrel
+
+	NextBarrel:
+		 ADD SI, 2
+		 ;ADD SI, 3 										;In case of length variable
+		 MOV BL, [SI]
+		 CMP BL, '$'										; if we finish checking for all barrel
+		 JNZ StartFromBullet1								; stop iterating else, continue with the next barrel
+
+BarrelColls ENDP
+
 PlayerColls PROC	
 ;       ----------------------------- Players Logic when got hit -----------------------------------    ;
 stopIterate:
@@ -625,6 +720,8 @@ Logic PROC
 
      CALL CactusColls
 
+	 CALL BarrelColls
+
 	 CALL MoveDeactivateBullets
 	 
 	 RET
@@ -826,6 +923,50 @@ DrawCactus:
 	 POP CX														; pop the outer loop iterator
 	 ADD SI, 2													; get the next cactus
 	 LOOP DrawCactus
+
+; ---------------------------------------------------------------------------------------------------
+; Barrel Drawing 
+; ---------------------------------------------------------------------------------------------------
+	 MOV SI, OFFSET Barrel
+	 MOV CX, 0
+	 MOV CL, BarrelNum
+
+DrawBarrel:
+	 MOV DL, [SI] 												;xPos of the upper part of the barrel
+	 MOV DH, [SI+1]												;yPos of the upper part of the barrel
+
+	 ;MOV AL, [SI+2]
+	 PUSH CX 													; we save the value of the iterate of the outer loop to be able to use CX for the two loops 
+	 MOV CX, 2
+	 ;MOV CH,0													;In case of length variable
+	 ;ADD CL, AL 												;In case of length variable
+
+	DrawBarrelBlock:											; The barrel is supposed to have a variable length but for now I'll put as 2
+		 MoveCursor DL, DH
+		 DisplayChar BarrelSymbol
+		 INC DH
+		 LOOP DrawBarrelBlock
+	 POP CX														; pop the outer loop iterator
+ 	 ADD SI, 2													; get the next barrel
+	 ;ADD SI, 3 												;In case of length variable
+	 LOOP DrawBarrel
+
+; ---------------------------------------------------------------------------------------------------
+; StonePile Drawing 
+; ---------------------------------------------------------------------------------------------------
+	 MOV SI, OFFSET StonePile
+	 MOV CX, 0
+	 MOV CL, StonePileNum
+DrawStonePile:													;Here we only need one loop since the stonepile consists of only one position (i.e its height is 1)
+	 MOV DL, [SI] 												;xPos of the stonepile
+	 MOV DH, [SI+1]												;yPos of the stonepile
+
+	 MoveCursor DL, DH
+	 DisplayChar StonePileSymbol
+	 INC DH
+	 ADD SI, 2													; get the next stonepile
+	 LOOP DrawStonePile
+
 	 RET
 
 Draw ENDP
