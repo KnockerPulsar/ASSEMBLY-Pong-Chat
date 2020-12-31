@@ -100,7 +100,7 @@ ENDM
 	; Bullet data 
 	; =============================================================================================
 	 BulletDataSize 		EQU 5 ; How many bytes does a single bullet occupy
-	 NumBullets 			EQU 2 ; Change when adding bounce bullets
+	 NumBullets 			EQU 3 ; Change when adding bounce bullets
 	 BallInititLoc      	DB  3D, 11D
      BulletSymbol 			EQU "O"                 
 	 
@@ -110,8 +110,13 @@ ENDM
      
 	 ; Player2 bullets
 	 P2Bullet1 				DB 40, 12, -2, 0, 0
-	 DB '$'				; we use it as indicator for the end of the bullets
+	 ;DB '$'				; we use it as indicator for the end of the bullets
 		 
+	 ;One of the following is used when a bullet hits a stonepile (xPos, yPos, xVel, yVel, active)
+	 ExtraBullet1 			DB 40, 12, 2, 0, 0
+	 ;ExtraBullet2			DB 40, 12, -2, 0, 0
+	 DB '$'
+	 ExtraNum 				EQU 1
 	; Cactus data
 	; =============================================================================================
 	; xPos, yPos pairs
@@ -131,7 +136,7 @@ ENDM
 	; =============================================================================================
 	; xPos, yPos pairs
 	 StonePileNum 			EQU 2
-	 StonePile 				DB 60d,15d,12d,10d,'$'
+	 StonePile 				DB 60d,8d,12d,10d,'$'
 	 StonePileSymbol 		EQU 234
 	 
 	; Displayed messages
@@ -416,8 +421,10 @@ LowerPart:
 		ADD SI, 2
 		MOV BL, [SI]
 		CMP BL, '$'											; if we finish checking for all cactuses
-		JZ stopIterate										; stop iterating 
+		JZ FinishCactusColl										; stop iterating 
 		JMP CactusCollisions								; else, continue with the next cactus
+	
+	FinishCactusColl: RET
 	
 CactusColls ENDP
 
@@ -501,6 +508,95 @@ BarrelCollisions:
 
 BarrelColls ENDP
 
+StonepileColls PROC
+; =================================================================================================
+;  StonePile Collisions Checks
+; =================================================================================================
+
+	 LEA SI, StonePile 										; To Iterate on the stonepile objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the stonepile
+
+SPStartFromBullet1:
+	 LEA DI, P1Bullet1			 							; Starting with bullet 1
+	 MOV DL,0
+StonepileCollisions:
+		 INC DL
+		 MOV BL, BYTE PTR [DI + 4] 							; Carries the current bullet's active flag
+		 CMP BL, 1				  							; Checking if the bullet is active
+		 JNZ SPGetBullet			  						; If not, skip the collision check
+		 
+		 ;General Case: Collision occurs if xPos Bullet <= xPos Stonepile <= xPos + xVel Bullet && yPos Bullet <= yPos Stonepile <= yPos + yVel Bullet
+		 ;For now implement the case where the bullet is straight
+		 MOV BL, BYTE PTR [DI]								;Get the xPos of the bullet
+		 MOV BH, BYTE PTR [SI]								;Get the xPos of the stonepile
+		 CMP BL,BH
+		 JZ SPCheckYColli
+		 INC BH												;This is correct assuming the velocity is either +2 or -2
+		 CMP BL,BH
+		 JNZ SPGetBullet
+
+	SPCheckYColli:
+		 MOV BL, BYTE PTR [DI+1]							;Get the yPos of the bullet
+		 MOV BH, BYTE PTR [SI+1]							;Get the yPos of the stonepile
+		 CMP BL,BH
+		 JNZ SPGetBullet
+;       ----------------------------Stonepile Parts Logic when hit -----------------------------------    ;
+		 PUSH SI
+		 LEA SI, ExtraBullet1								;To check wherther there's an available extra bullet.
+	SPGetExtraBullet:
+		 MOV CL, BYTE PTR [SI + 4]							; Carries the current bullet's active flag
+		 CMP CL, 0				  							; Checking if the bullet is active
+		 JZ ExecuteSPLogic			  						; If not, Check the next extra bullet
+		 ADD SI, BulletDataSize								; Loads the next bullet's data
+		 MOV CL, BYTE PTR [SI]									
+		 CMP CL, '$'										
+		 JNZ SPGetExtraBullet
+		 POP SI
+		 RET												;If no extra bullet available, skip making any effect
+
+ExecuteSPLogic:
+
+		 MOV CL, BYTE PTR [SI + 4]							; Carries the current bullet's active flag
+		 MOV CL, 1				  							; Makes the bullet active
+		 MOV [SI + 4], CL
+		 
+		 MOV CL, [SI]										;Setting the extra bullet's xPos the same as the original bullet
+		 MOV BL, [DI]
+		 MOV CL, BL
+		 MOV [SI], CL
+		 MOV CL, [SI+1]										;Setting the extra bullet's yPos the same as the original bullet
+		 MOV BL, [DI+1]
+		 MOV CL, BL
+		 MOV [SI+1], CL
+
+		 MOV CL, [SI+2]										;Setting the extra bullet's xVel the same as the original bullet
+		 MOV BL, [DI+2]
+		 MOV CL, BL
+		 MOV [DI+3], CL										;Setting the yVel of the bullet the same as its xVel
+		 MOV [SI+2], CL
+		 NOT CL
+		 INC CL
+		 MOV [SI+3], CL										;Setting the extra bullet's yVel in the opposite direction to the original bullet
+		 POP SI
+
+	SPGetBullet:					
+		 ADD DI, BulletDataSize								; Loads the next bullet's data
+		 ;MOV BL, [DI]									
+		 ;CMP BL, '$'		
+		 CMP DL, NumBullets
+		 JZ NextStonepile									; If we finished checking all bullets, reset the current bullet, check the next stonepile
+		 JMP StonepileCollisions							; else, continue with the current stonepile
+
+	NextStonepile:
+		 ADD SI, 2
+		 MOV BL, [SI]
+		 CMP BL, '$'										; if we finish checking for all stonepiles
+		 JZ FinishStonepileColl
+		 JMP SPStartFromBullet1								; stop iterating else, continue with the next stonepile
+
+	FinishStonepileColl:RET
+
+StonepileColls ENDP
+
 PlayerColls PROC	
 ;       ----------------------------- Players Logic when got hit -----------------------------------    ;
 stopIterate:
@@ -509,6 +605,7 @@ stopIterate:
 	 MOV DH , BYTE PTR [SI + 1]  							; DH carries the Y coordinate (Rows) for P1
 	 MOV AH , PLAYER_HEIGHT
 	 MOV CL, NumBullets
+	 ADD CL, ExtraNum
 	 MOV CH, 0
 	 LEA DI, P1Bullet1										; Starting with bullet 1
 
@@ -573,6 +670,7 @@ BulletPlayer1Col:
 	 MOV DH , BYTE PTR [SI + 1]  							; DH carries the Y coordinate (Rows) for P2
 	 MOV AH , PLAYER_HEIGHT
 	 MOV CL, NumBullets
+	 ADD CL, ExtraNum
 	 MOV CH, 0
 	 LEA DI, P1Bullet1										; Starting with bullet 1
 
@@ -721,6 +819,8 @@ Logic PROC
      CALL CactusColls
 
 	 CALL BarrelColls
+
+	 CALL StonepileColls
 
 	 CALL MoveDeactivateBullets
 	 
@@ -876,6 +976,7 @@ Draw PROC
 
 	 MOV CH, 0
 	 MOV CL, NumBullets
+	 ADD CL, ExtraNum
 	 LEA SI, P1Bullet1
 
 DrawBullets:
