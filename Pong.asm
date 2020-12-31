@@ -1284,34 +1284,29 @@ ResetRound ENDP
 
 WinScreen PROC 
 	 ClearScreen
-	 ; Test 1
-	 MOV DL, 9D
 
-	Loopy:
-	 MOV DH, 80D
-		 Loopx:
-			 DisplayChar " "
-			 DEC DH
-			 JNZ Loopx
-			 DEC DL
-			 JNZ Loopy
-
-	 MOV AH, AL
-	 ADD AH, 10
-	Final:
-	 DisplayChar " "
-	 DEC DH
-	 JNZ Final
- 
-	 LEA SI, userName
-	 ADD SI, 2 
-	 MOV AL, 40D
-	 MoveCursor AL, 12D
+	 MOV AL, 0
 	 CMP PlayerOneScore, 35H         					; Check if the winner is P1
 	 JZ SKIP1
 	 JMP Player2
+
 	SKIP1:
-	 DisplayMessage  SI             				
+	 LEA SI, userName
+	 ADD SI, 2 
+
+	 ADD AL, [SI - 1]
+	 ADD AL, 18D
+	 ADD AL, 1D
+	 ADD AL, 4D
+
+	 MOV AH, 80D										; This is used to center the entire length
+	 SUB AH, AL											; We subtract the entire length of the win message from 80 (row length)
+	 MOV AL, AH											; we then divide the result by 2 and use that as the beginning of the message
+	 MOV AH, 00H
+	 MOV DH, 2D
+	 DIV DH
+	 MoveCursor AL, 12D
+	 DisplayMessage  SI  
 	 ADD AL, [SI - 1]
 	 MoveCursor AL, 12D
 	 DisplayMessage WinCondition
@@ -1326,7 +1321,23 @@ WinScreen PROC
 	 DisplayChar PlayerTwoScore
 	 JMP SKIP2
 
-	Player2:											;userName2 is fixed for now but will be needed when it's variable     											
+	Player2:											;userName2 is fixed for now but will be needed when it's variable     
+	 LEA SI, userName2
+
+	 ADD AL, 11D           								; This is fixed at 11D for now but should change when player2's name is inputed
+	 ADD AL, 18D
+	 ADD AL, 1D
+	 ADD AL, 4D
+
+	 MOV AH, 80D										; This is used to center the entire length
+	 SUB AH, AL											; We subtract the entire length of the win message from 80 (row length)
+	 MOV AL, AH											; we then divide the result by 2 and use that as the beginning of the message
+	 MOV AH, 00H
+	 MOV DH, 2D
+	 DIV DH
+
+
+	 MoveCursor AL, 12D
 	 DisplayMessage userName2
 	 ADD AL, 11D
 	 MoveCursor AL, 12D
@@ -1334,11 +1345,9 @@ WinScreen PROC
 	 ADD AL, 18D
 	 MoveCursor AL, 12D
 	 DisplayChar PlayerOnescore
-	 
 	 ADD AL, 1D
 	 MoveCursor AL, 12D
 	 DisplayMessage WinScore
-	 
 	 ADD AL, 4D
 	 MoveCursor AL, 12D
 	 DisplayChar PlayerTwoScore
