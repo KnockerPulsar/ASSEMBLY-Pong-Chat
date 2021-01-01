@@ -156,12 +156,15 @@ ENDM
 	 WinCondition  			DB " Wins with score: " , '$'
 	 WinScore 	   			DB " To ", '$'
 	 Test1         			DB "Test", '$'
+	 RoundSystemTime		DB ?				   	; Storing only seconds to detect when 1 second has passed		
+	 RoundTime 				DB 34H,35H
+	 DefaultTime			DB 34H,35H
 
 	; Other variables
 	; ============================================================================================= 
 	 authentication 		DB 0
 	 exiting 				DB 0
-
+	 GetInput				DB 1					; If it's 1 players can move and and shoot. If it's 0, they can't
 
 	; Unused data
 	; =============================================================================================
@@ -242,19 +245,21 @@ MAIN PROC FAR
 		 MOV 			AH, 0
 		 INT 16h
 		
-		 CMP AH, 1   		       ; Check for ESC
-		 JZ Exit
+		 CMP AH, 1   		       	   ; Check for ESC
+		 JNZ NotExit
+		 JMP Exit
 
-		 CMP AH, 3Ch 		       ; Check for F2
-		 JNZ NotF2
-		 CALL ResetRound           ; Reset the player positions
-		 MOV PlayerOneScore, 30H   ; Reset both players' scores
-		 MOV PlayerTwoScore, 30H
-		 JMP GameLoop
+		 NotExit:
+		 	CMP AH, 3Ch 		       ; Check for F2
+		 	JNZ NotF2
+		 	CALL ResetRound            ; Reset the player positions
+		 	MOV PlayerOneScore, 30H    ; Reset both players' scores
+		 	MOV PlayerTwoScore, 30H
+		 	JMP GameLoop 
 
 		 NotF2:
-		 CMP AH, 3Bh 		       ; Check for F1
-		 JNZ CHS 			       ; if the pressed key not an option, loop till it is
+		 	CMP AH, 3Bh 		       ; Check for F1
+		 	JNZ CHS 			       ; if the pressed key not an option, loop till it is
 
 ;=================================================================================================
 ;										 Chatting Module 
@@ -288,21 +293,51 @@ MAIN PROC FAR
 		; Check if Any player Won
 		 MOV AL, PlayerOneScore
 		 MOV AH, PlayerTwoScore
-		 CMP AL, 35H
-		 JNZ Skip
+		 CMP AL, 35H							; Check if PlayerOneScore is 5
+		 JNZ CheckPlayer2Score					; If it is, Call WinScreen
 		 CALL WinScreen
 		 JMP OptionsWindow
-		 JMP Skiip
-		 Skip:
-		 CMP AH, 35H
-		 JNZ Skiip
+		 JMP Procedures
+		 CheckPlayer2Score:
+		 CMP AH, 35H							; Check if PlayerTwoScore is 5
+		 JNZ CheckRoundTime						; If it is, call Winscreen
 		 CALL WinScreen
 		 JMP OptionsWindow
 
-	SKiip:
+	CheckRoundTIme:
 
-		 CALL GetPlayerInput      				;Get player input,  Currently only getting local player input
- 		 
+		 ; Check if Round time is 0
+		 LEA SI, RoundTime						; RoundTime is the time counter that changes on the screen
+		 CMP BYTE PTR [SI], 30H					; stored in format [Tens], [Units]. If both Tens and Units are zero, counter is 00
+		 JNZ CheckRound
+		 CMP BYTE PTR [SI + 1], 30H
+		 JNZ CheckRound							; If the current round timer isn't zero, don't Start a new round
+		 MOV AL, GetInput						; GetInput is a flag to check if players can move and shoot or not
+		 CMP AL, 0								; If round timer is zero and no inputs are allowed, This is the end of the countdown 
+		 JZ DontResetRound						; That is before the start of a new round, and therefore, don't reset to a new round
+		 CALL ResetRound						; Otherwise, if GetInput is 1 and round timer is zero, that means that the current round
+		 JMP CheckRound							; just ended and ResetRound (i.e. Start a new Round)
+
+		DontResetRound:
+			LEA DI, DefaultTime					; Stores the default round time so that we can reset RoundTime
+			MOV AL, BYTE PTR [DI]
+			MOV BYTE PTR [SI], AL
+			MOV AL, BYTE PTR[DI + 1]
+			MOV BYTE PTR [SI + 1], AL			; Move the Default time in the current round timer
+			MOV GetInput, 1						; Allow player inputs
+			FlushKeyBuffer						; Flush the key buffer for any button presses when inputs weren't allowed
+			JMP Procedures
+		
+		CheckRound:
+			MOV AL, GetInput					
+			CMP AL, 0
+			JZ DontGetInput
+
+	Procedures:
+
+		 CALL GetPlayerInput      				 ;Get player input,  Currently only getting local player input
+
+	DontGetInput:
 		 CALL Logic
 
  		 CALL StaticLayout
@@ -611,7 +646,7 @@ stopIterate:
 	 LEA DI, P1Bullet1										; Starting with bullet 1
 
 ; =================================================================================================
-; Player 1 colissions checks 
+; Player 1 collision checks 
 ; =================================================================================================
 
 BulletPlayer1Col:
@@ -847,7 +882,7 @@ StaticLayout PROC
 		 LOOP chatWindow
 
 ; ---------------------------------------------------------------------------------------------------
-; Player1 Score
+; Player Score
 ; ---------------------------------------------------------------------------------------------------
 
 	 MoveCursor 01H, 17d
@@ -862,9 +897,21 @@ StaticLayout PROC
 	 Add Al, 11D
 	 MoveCursor Al, 17D
 	 DisplayChar PlayerOneScore
-	 MoveCursor 30H, 17d
-	 DisplayMessage userName2
-	 MOV AL, 30H 
+	 
+	 MOV CH, 1D
+	 ADD CH, AL												; Storing the end point of P1Score for user later
+
+	 
+	 MOV AH, 11D                                       		; AL is the length of the entire message of Player2 score
+	 ADD AH, 11D											; lengths of userName2 + UserNameScore + PlayerTwo Score + 1(for spacing)
+	 ADD AH, 1D												; 			11D		    +		11D	   +	 1D		     +  1D
+	 ADD AH, 1D
+	 MOV AL, 80D
+	 SUB AL, AH												; Now AL contains the x from where we start displaying the player two score message
+	 MOV CL, AL												; Storing the beginning of P2Score for use later
+
+	 MoveCursor AL, 17d
+	 DisplayMessage userName2 
 	 ADD AL, 11D 											; This should be length of userName2 Which is fixed at Abdelrahman For Now
 	 DisplayMessage UserNameScore
 	 ADD AL, 11D
@@ -873,6 +920,7 @@ StaticLayout PROC
 ; ---------------------------------------------------------------------------------------------------
 ; Break dashed line
 ; ---------------------------------------------------------------------------------------------------
+	PUSH CX
 	MoveCursor 00H, 18d
 		MOV 			CX, 80
 		MOV 			AH, 2
@@ -880,6 +928,44 @@ StaticLayout PROC
 	chatWindow2:										 	;Draw the dashed line
 		 INT 21h
 		 LOOP chatWindow2
+	POP CX
+
+; ---------------------------------------------------------------------------------------------------
+; Timer
+; ---------------------------------------------------------------------------------------------------
+	SUB CL, CH												; This bit is used to center the round timer in the space between the 
+	MOV DH, 2D												; 2 players' names
+	MOV AH, 00D												; CL contains the start of P2Score message and CH contains the end of P1Score message
+	MOV AL, CL												; Subtracting them then dividing by 2 gives the length of half the space between them
+	DIV DH													; The time message length is 6, subtract 6 so that 6 characters are in the first half
+	ADD AL, CH												; And the 3 other characters are in the second half
+	SUB AL, 3D
+
+	MOV AH, 02H
+	INT 1AH													; INT 1AH is used to get System time. It stores seconds in DH
+	CMP DH, RoundSystemTime									; Round system time stores the tens and units of the seconds in format [Tens][Seconds] or 00 
+	JZ DisplayTime											; If there is no change in system time (1 second has yet to pass) just display time and move on
+	MOV RoundSystemTime, DH									
+	LEA SI, RoundTime
+	CMP BYTE PTR [SI + 1], 30H								; Check if the units are 0
+	JZ Borrow												; If so, borrow 1 from the tens, otherwise, subtract 1 from the units
+	DEC BYTE PTR [SI + 1]									
+	JMP DisplayTime
+	Borrow:
+		DEC BYTE PTR [SI]
+		MOV BYTE PTR [SI + 1], 39H
+	
+	DisplayTime:											; Display time displays the current time left in seconds that the time has left
+		MoveCursor AL, 17D
+		DisplayChar '|'
+		DisplayChar '0'
+		DisplayChar ':'
+		LEA SI, RoundTime									; RoundTime stores the time in format tens, seconds
+		Displaychar [SI]
+		ADD SI, 1D
+		DisplayChar [SI]
+		DisplayChar '|'
+
 ; ---------------------------------------------------------------------------------------------------
 ; Chat Bottom border
 ; ---------------------------------------------------------------------------------------------------
@@ -1120,6 +1206,7 @@ GetPlayerInput PROC
 ; ---------------------------------------------------------------------------------------------------
 ; Player 1 
 ; ---------------------------------------------------------------------------------------------------
+	 
      PUSH CX
 	 LEA SI, PlayerOne
      MOV CL, BYTE PTR [SI + 1]
@@ -1132,6 +1219,7 @@ GetPlayerInput PROC
 	 MOV BYTE PTR [SI], 1
 	 JMP exitGame											; exit this procedure
 
+
 	continue:
 
 	SKIP_JUMP:
@@ -1143,7 +1231,7 @@ GetPlayerInput PROC
      JMP EndMoveCheckP1
      
 MoveUpP1:    												; Checks if PlayerOne is moving up & out of the game boundary
-	 CMP CL, 1
+	 CMP CL, 2
 	 JZ EndMoveCheckP1
      DEC CL
      JMP EndMoveCheckP1
@@ -1168,7 +1256,6 @@ EndMoveCheckP1:
 	 JZ EndShootCheckP1  									; If the player has no bullets left to shoot, don't shoot
 	 CALL Player1Shoot
 	EndShootCheckP1:
-
 ; ---------------------------------------------------------------------------------------------------
 ; Player 2 
 ; ---------------------------------------------------------------------------------------------------
@@ -1187,7 +1274,7 @@ EndMoveCheckP1:
      JMP EndInputP2
      
 MoveUpP2:     											 	; Checks if PlayerTwo is moving up & out of the game boundary
-	 CMP CL, 1
+	 CMP CL, 2
 	 JZ EndInputP2
      DEC CL
 	 skip21:
@@ -1216,8 +1303,7 @@ EndInputP2:
 	 CALL Player2Shoot
  
 	EndShootCheckP2:       
-	 FlushKeyBuffer
-
+	FlushKeyBuffer
 	exitGame:
 	 RET
 
@@ -1259,7 +1345,7 @@ Player2Shoot PROC
 	 MOV BYTE PTR [DI + 1], AH
 	 MOV BYTE PTR [DI + 4], 1								; Setting the bullet's active flage
 	 MOV BYTE PTR [SI+3],1									; Setting the player's bulletsInArenaFlag
-	 MOV BYTE PTR [DI+2], -2									; reset the player xVel incase it was changed by an object
+	 MOV BYTE PTR [DI+2], -2								; reset the player xVel incase it was changed by an object
 	 MOV BYTE PTR [DI+3],0									; reset the player yVel incase it was changed by an object
 	 RET
 Player2Shoot ENDP
@@ -1269,8 +1355,8 @@ ResetRound PROC
 ; Reset Player1 Variables
 ; ---------------------------------------------------------------------------------------------------
 
-	 LEA SI, PlayerOne
-	 MOV AL, LeftPlayerIitialCol
+	 LEA SI, PlayerOne										; Reset xpos, ypos, bulletsCount, and bulletsInArena do 
+	 MOV AL, LeftPlayerIitialCol							; Default values
 	 MOV BYTE PTR [SI], AL
 	 MOV AL, PlayerInitialRow
 	 MOV BYTE PTR [SI + 1], AL
@@ -1281,8 +1367,8 @@ ResetRound PROC
 ; Reset Player2 Variables
 ; ---------------------------------------------------------------------------------------------------
 
-	 LEA SI, PlayerTwo
-	 MOV AL, RightPlayerIitialCol
+	 LEA SI, PlayerTwo										; Reset xpos, ypos, bulletsCount, and bulletsInArena do
+	 MOV AL, RightPlayerIitialCol							; Default values
 	 MOV BYTE PTR [SI], AL
 	 MOV AL, PlayerInitialRow
 	 MOV BYTE PTR [SI + 1], AL
@@ -1293,8 +1379,8 @@ ResetRound PROC
 ; Deactivating Active Bullets
 ; ---------------------------------------------------------------------------------------------------
 
-	 LEA DI, P1Bullet1 
-	 MOV CL, NumBullets
+	 LEA DI, P1Bullet1 										; Set the active flag of any bullet to 0 and move them
+	 MOV CL, NumBullets										; all to the center of the screen
 	 MOV CH, 00D
 	GetToWork:
 	 	 MOV BYTE PTR [DI], 40D
@@ -1302,7 +1388,21 @@ ResetRound PROC
 	 	 MOV BYTE PTR [DI + 4], 0
 	 	 ADD DI, BulletDataSize
 	 	 LOOP GetToWork
-	 RET
+; ---------------------------------------------------------------------------------------------------
+; Get Current system time and round wait timers
+; ---------------------------------------------------------------------------------------------------
+	 MOV AH, 02H
+	 INT 1AH											; INT 1Ah gets system time and stores seconds in DH
+	 MOV RoundSystemTime, DH							; Whenever we resetRound (i.e. starting a new round), we wait for
+	 LEA SI, RoundTime									; 3 seconds before starting that new round
+	 MOV AL, 30H										; We add 30 to the tens and units of the time so that they can be printed
+	 MOV AH, 33H										; RoundSystemTime contains the current round Time which is counted 
+	 MOV [SI], AL										; down every second
+	 MOV [SI + 1], AH
+	 MOV AL, 0										
+	 MOV GetInput, AL									; GetInput is a flag used to determine whether we read input from the players or not
+														; This is set to 0 (Players's can't move or shoot) during the 3 seconds wait time 
+	 RET												; before round start
 ResetRound ENDP
 
 WinScreen PROC 
@@ -1317,7 +1417,7 @@ WinScreen PROC
 	 LEA SI, userName
 	 ADD SI, 2 
 
-	 ADD AL, [SI - 1]
+	 ADD AL, [SI - 1]									; Here we are getting the total length of the win message
 	 ADD AL, 18D
 	 ADD AL, 1D
 	 ADD AL, 4D
@@ -1329,10 +1429,10 @@ WinScreen PROC
 	 MOV DH, 2D
 	 DIV DH
 	 MoveCursor AL, 12D
-	 DisplayMessage  SI  
+	 DisplayMessage  SI  								
 	 ADD AL, [SI - 1]
 	 MoveCursor AL, 12D
-	 DisplayMessage WinCondition
+	 DisplayMessage WinCondition						
 	 ADD AL, 18D
 	 MoveCursor AL, 12D
 	 DisplayChar PlayerOnescore
@@ -1375,17 +1475,21 @@ WinScreen PROC
 	 MoveCursor AL, 12D
 	 DisplayChar PlayerTwoScore
 
-SKIP2:
+SKIP2:					
 	 MOV AH, 02H
-	 INT 1AH
-	 MOV AL, DH
-	 ADD AL, 5D
-Time:
-	 MOV AH, 02H
+	 INT 1AH													; INT 1AH is used to get the system time, Seconds are stored in DH
+	 MOV AL, DH													; If we want to wait for 5 seconds, all we need to do
+	 MOV BL, 5D													; Is detect changes in the seconds of the system time 5 times
+Time:															; We store the current system time then loop untill we detect a change in system time (seconds)
+	 MOV AH, 02H												; If change is detected, decrement BL, if this happens 5 times, then 5 seconds have passed
 	 INT 1AH
 	 CMP AL, DH
-	 JAE Time
- 
+	 JZ Time
+	 DEC BL
+	 JZ EndTime
+	 MOV AL, DH
+	 JMP Time
+EndTime:
 	 RET
 WinScreen ENDP
 
