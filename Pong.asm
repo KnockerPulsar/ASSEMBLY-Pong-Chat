@@ -88,8 +88,8 @@ ENDM
 	 LeftPlayerIitialCol  	DB  2H
 	 RightPlayerIitialCol 	DB  77D
 	 PlayerSymbol         	EQU "#"
-     PLAYER_WIDTH   		EQU 3
-	 PLAYER_HEIGHT  		EQU 2
+     PLAYER_WIDTH   		EQU 1
+	 PLAYER_HEIGHT  		EQU 3
 	 PlayerOneScore 		DB 30H ; Player Scores
 	 PlayerTwoScore 		DB 30H
 
@@ -428,6 +428,7 @@ LowerPart:
 	
 CactusColls ENDP
 
+; TODO: there's a bug where if a bullet moves just below or above a barrel, its speed still gets reduced
 BarrelColls PROC
 ; =================================================================================================
 ;  Barrel Collisions Checks
@@ -927,7 +928,7 @@ Draw PROC
 	 LEA SI, PlayerOne
 	 MOV DL, BYTE PTR [SI]                    
 	 MOV CL , PLAYER_WIDTH
-
+	
 	DrawLeftPlayerX:   
 	 MOV CH , PLAYER_HEIGHT
 	 MOV DH , BYTE PTR [SI + 1]
@@ -944,6 +945,17 @@ Draw PROC
 	 DEC CL
 	 CMP CL, 0     
 	 JNZ DrawLeftPlayerX
+
+	; Drawing the bullet count behind the player
+	 MOV CL, BYTE PTR [SI]									; Loading the player's xPos
+	 DEC CL													; Going 1 block to the left
+	 MOV CH, BYTE PTR [SI+1]								; Loading the player's yPos
+	 DEC CH													; Going 1 block up
+	 MOV DL, BYTE PTR [SI+2]								; Loading the player's bullet count
+	 ADD DL, 30H											; Converting it to ASCII
+	 MoveCursor CL, CH				
+	 DisplayChar DL
+
 
 ; ---------------------------------------------------------------------------------------------------
 ; Right Player
@@ -969,6 +981,16 @@ Draw PROC
 	 DEC CL
 	 CMP CL, 0     
 	 JNZ DrawRightPlayerX
+
+	 ; Drawing the bullet count behind the player
+	 MOV CL, BYTE PTR [SI]									; Loading the player's xPos
+	 INC CL													; Going 1 block to the right
+	 MOV CH, BYTE PTR [SI+1]								; Loading the player's yPos
+	 DEC CH													; Going 1 block up
+	 MOV DL, BYTE PTR [SI+2]								; Loading the player's bullet count
+	 ADD DL, 30H											; Converting it to ASCII
+	 MoveCursor CL, CH				
+	 DisplayChar DL
 
 ; ---------------------------------------------------------------------------------------------------
 ; Bullets Drawing 
@@ -1208,6 +1230,7 @@ Player1Shoot PROC
  
 	 MOV AL, BYTE PTR [SI]									; AL = P1.xPos
 	 MOV AH, BYTE PTR [SI + 1]								; AH = P1.yPos
+	 DEC AH 												; Shifting the bullet 1 block up so it comes out from the middle of the player
 	 DEC BYTE PTR[SI + 2]     					 			; Decrease the player's bullet stash by 1
 	 INC AL													; Incrementing AL so that it's now in front of the player
 	 
@@ -1228,7 +1251,7 @@ Player2Shoot PROC
  
 	 MOV AL, BYTE PTR [SI]									; AL = P2.xPos
 	 MOV AH, BYTE PTR [SI + 1]								; AH = P2.yPos
- 
+	 DEC AH													; Shifting the bullet 1 block up so it comes out from the middle of the player
 	 DEC BYTE PTR [SI + 2]     								; Decrease the player's bullet stash by 1
 	 DEC AL													; Decrementing AL so that it's now in front of the player
  
