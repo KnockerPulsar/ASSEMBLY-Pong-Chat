@@ -1203,23 +1203,35 @@ waitForNewVR PROC
 waitForNewVR ENDP
 
 GetPlayerInput PROC
+
+	 
+CheckBuffer:
+	 ; Checking if the keyboard buffer contains any keypresses
+	 ; INT 16H with AH = 01H returns ZF = 0 if there's something in the buffer and ZF = 1 if the buffer is empty
+	 MOV AH,01H
+	 INT 16h
+	 JNZ CheckInput											; If the buffer is empty, no need to execute inputs
+	 JMP exitGame											; AAAAAAAAAAAAAAAAAAAAAAAA
+	 
+CheckInput:
+	 ; If there's a keypress, get it 
+	 MOV AH, 00
+	 INT 16H
+	 
 ; ---------------------------------------------------------------------------------------------------
 ; Player 1 
 ; ---------------------------------------------------------------------------------------------------
-	 
-     PUSH CX
+
 	 LEA SI, PlayerOne
      MOV CL, BYTE PTR [SI + 1]
-     MOV AH,1
-     INT 16H    
+    ;  MOV AH,1
+    ;  INT 16H 
 
 	 CMP AH, 3Eh											; Checks if the user pressed F4
 	 JNZ continue											; if not, continue searching for the pressed key
 	 LEA SI, exiting										; if he pressed, set this flag to 1 so we can use it in the main program to direct the user to Options Window
 	 MOV BYTE PTR [SI], 1
 	 JMP exitGame											; exit this procedure
-
-
 	continue:
 
 	SKIP_JUMP:
@@ -1248,11 +1260,11 @@ EndMoveCheckP1:
 	 JNZ EndShootCheckP1 									; If the player didn't press D, don't check for bullets
 
 	 LEA SI, PlayerOne
-	 MOV AL, BYTE PTR [SI + 3]
-	 CMP AL, 0
+	 MOV BL, BYTE PTR [SI + 3]
+	 CMP BL, 0
 	 JNZ EndShootCheckP1 									; If the player has any bullets in the arena, don't shoot any more bullets
-	 MOV AL, BYTE PTR[SI + 2]
-	 CMP AL, 0
+	 MOV BL, BYTE PTR[SI + 2]
+	 CMP BL, 0
 	 JZ EndShootCheckP1  									; If the player has no bullets left to shoot, don't shoot
 	 CALL Player1Shoot
 	EndShootCheckP1:
@@ -1262,9 +1274,6 @@ EndMoveCheckP1:
 	
 	 LEA SI, PlayerTwo
      MOV CL, BYTE PTR [SI + 1]
-     MOV AH,1
-     INT 16H    
-
 
      CMP AH, 72D											; player pressed Up arrow
      JZ MoveUpP2
@@ -1288,22 +1297,23 @@ MoveDownP2:   											 	; Checks if PlayerTwo is moving up & out of the game 
 
 EndInputP2:
      MOV BYTE PTR [SI + 1], CL
-     POP CX  
 
 	 CMP AH, 75D
 	 JNZ EndShootCheckP2 									; If the player didn't press D, don't check for bullets
  
 	 LEA SI, PlayerTwo
-	 MOV AL, BYTE PTR [SI + 3]
-	 CMP AL, 0
+	 MOV BL, BYTE PTR [SI + 3]
+	 CMP BL, 0
 	 JNZ EndShootCheckP2 									; If the player has any bullets in the arena, don't shoot any more bullets
-	 MOV AL, BYTE PTR[SI + 2]
-	 CMP AL, 0
+	 MOV BL, BYTE PTR[SI + 2]
+	 CMP BL, 0
 	 JZ EndShootCheckP2  									; If the player has no bullets left to shoot, don't shoot
 	 CALL Player2Shoot
  
-	EndShootCheckP2:       
-	FlushKeyBuffer
+	EndShootCheckP2:
+	 ; Jump to check if there are anymore keypresses
+	 JMP CheckBuffer										; JUMP OUT OF RANGE AAAAAAAAAAA
+	; FlushKeyBuffer
 	exitGame:
 	 RET
 
