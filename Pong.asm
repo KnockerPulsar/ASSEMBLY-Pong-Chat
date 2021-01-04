@@ -349,7 +349,7 @@ MAIN PROC FAR
 		 LEA SI, exiting
 		 MOV BH, [SI]
 		 CMP BH, 1 
-		 JMP GameLoop		; if not continue the game
+		 JNZ GameLoop		; if not continue the game
 		 				
 		 JMP OptionsWindow	; else return to options window
 
