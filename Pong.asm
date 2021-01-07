@@ -152,7 +152,7 @@ ENDM
 	 Hel 		   			DB 'Please Enter any key to continue','$'
 	 Choices       			DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
 	 Info          			DB 13,10,'- You sent a chat invitaion to ','$'
-	 ReceivedInvite			DB 13,10,'- You received a chat invitation from ','$'
+	 ReceivedInviteMsg		DB 13,10,'- You received a chat invitation from ','$'
 	 MyName LABEL BYTE
 	 userName      			DB 16,?, 16 DUP('$')
 	 userNameScore 			DB "'s Score : ", '$'
@@ -197,6 +197,11 @@ ENDM
 	; OtherName	   			DB 17 DUP('$')
 	InviteChar     			EQU 2BH 
 	ConfirmChar				EQU 2AH
+	; Flags
+	SentInvite 				DB  0
+	ReceivedInvite 			DB  0
+	SentConfirmation 		DB  0
+	ReceivedConfirmation	DB  0
 
 .CODE
 MAIN PROC FAR
@@ -251,6 +256,9 @@ MAIN PROC FAR
 		;Get any key as an indicator to continue
 		 MOV 			AH, 0
 		 INT 16h
+		; Send your name
+		; Receive the other's name
+		CALL MasterChatInit
 
 	OptionsWindow:
 
@@ -266,22 +274,22 @@ MAIN PROC FAR
 	;------------------------------Get Input and validate it--------------------------------------;
 	CHS:
 
-		; Checking if an invitation arrived
-		; Check that data recieve register is Ready
-						mov         dx , 3FDH           	; Line Status Register address
-		CHK: 			in          al , dx
-	                    test        al , 1              	; Bit 1: data ready
-	                    JZ          NothingReceived			; Not Ready, skip this cycle
+			CheckIncoming:
+	; Check that data recieve register is Ready
+	                     mov         dx , 3FDH           		; Line Status Register address
+			CheckHolder:           		 
+						 in          al , dx
+	                     test        al , 1              		; Bit 1: data ready
+	                     JZ          NothingReceived   		  	; Not Ready, skip this cycle
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                     mov         dx , 03F8H             	; Data recieving register address
+	                     in          al , dx
+						 CMP 		 AL, ConfirmChar
+						 JE  		 MasterChat
+						 CMP 		 AL, InviteChar
+						 JE 		 ReceivedInviteLBL
+	NothingReceived:
 
-		; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
-	                    mov         dx , 03F8H          	; Data recieving register address
-	                    in          al , dx
-						CMP 		AL, InviteChar			; Check if the incoming byte is the invitation char
-						; If so, exchange names
-						; The slave side should first receive the name of the master, then send out it's own name
-						JE			SlaveChat					
-		NothingReceived:
-					
 	; Check if a key is pressed
 	     MOV         AH,1
 	     INT         16H                 	; Sets the ZF = 0 if a key is available, ZF = 1 if not
@@ -306,34 +314,50 @@ MAIN PROC FAR
 		 NotF2:
 		 	CMP AH, 3Bh 		       ; Check for F1
 		 	JNZ CHS 			       ; if the pressed key not an option, loop till it is
-		; If one side presses F1, send out the invitation byte, wait for a reply
-		; Check that Transmitter Holding Register is Empty
-		                    mov         dx , 3FDH           	; Line Status Register address
-		 AGAIN:             In          al , dx             	; Read Line Status
-		                    test        al , 00100000b      	; Bit 6: transmit shift register empty
-		                    JZ          CHS                	; Not empty, skip this cycle
-						  		; If the transmit data register is empty, sends the character to it
-	        				mov         dx , 3F8H           	; Transmit data register address
-	        				mov         al, InviteChar
-	        				out         dx , al
-							JMP			MasterChat
+			CMP ReceivedInvite, 1
+			JE LoadConfirmation
+			CMP SentInvite, 1		   ; Check if an invite has been already sent
+			JE CHS					   ; If so, don't send another one
+
+	    LoadInvite:
+			MOV CL, InviteChar
+			JMP SendInviteConfirmation
+		LoadConfirmation:
+			MOV CL, ConfirmChar
+			JMP SendInviteConfirmation
+	; The user didn't send an invite and F1 was pressed, send an invite
+	SendInviteConfirmation:
+	        mov         dx , 3FDH           	; Line Status Register address
+		 NotReady:            	
+			In          al , dx             	; Read Line Status
+	        test        al , 00100000b      	; Bit 6: transmit shift register empty
+	        JZ          NotReady            	; Not empty, loop until empty
+	; Sends out the invite	
+			mov         dx , 3F8H           	; Transmit data register address
+			mov         al , CL
+			out         dx , al
+	
+			CMP CL, InviteChar
+			JE SetInvite
+			CMP CL, ConfirmChar
+			JE Chatting
+
+	; If sent an invite, set "SentInvite" to 1
+		SetInvite:
+		    MOV SentInvite,1
+			JMP  CHS							; Go and wait for confirmation
+
+	ReceivedInviteLBL:
+		MOV ReceivedInvite,1
+		JMP CHS
+
+
 ;=================================================================================================
 ;										 Chatting Module 
 ;=================================================================================================
-	SlaveChat:
-		CALL SlaveChatInit
-		DisplayMessage ReceivedInvite
-		DisplayMessage userName2
-		JMP Chatting
-
-	MasterChat:
-		CALL MasterChatInit
-		MoveCursor 0,78
-		DisplayMessage Info
-		DisplayMessage userName2
-		JMP Chatting
 
 	;To be Continued "D IS THAT AN EMOJI!?
+	MasterChat:
 	Chatting:		
 		CALL Chat
 		;Move cursor to the footer
@@ -1428,7 +1452,7 @@ Player2Shoot PROC
 	 MOV BYTE PTR [DI+3],0									; reset the player yVel incase it was changed by an object
 	 RET
 Player2Shoot ENDP
-
+  
 ResetRound PROC
 ; ---------------------------------------------------------------------------------------------------
 ; Reset Player1 Variables
@@ -1482,8 +1506,7 @@ ResetRound PROC
 	 MOV GetInput, AL									; GetInput is a flag used to determine whether we read input from the players or not
 														; This is set to 0 (Players's can't move or shoot) during the 3 seconds wait time 
 	 RET												; before round start
-ResetRound ENDP
-
+ResetRound ENDP         	
 WinScreen PROC 
 	 ClearScreen
 
@@ -1630,33 +1653,17 @@ Chat PROC
 Chat ENDP
 
 SlaveChatInit PROC
-	; Give the master a signal so it starts sending data
-	; Receive the other side's name bytes until you encounter a $
-	; Then send your own name bytes up and including a $
 
-	; 	; Check that Transmitter Holding Register is Empty
-	;                      mov         dx , 3FDH           	; Line Status Register address
-	; SendConfimation:     In          al , dx     ; Read Line Status
-	;                      test        al , 00100000b      	; Bit 6: transmit shift register empty
-	;                      JZ          SendConfimation       ; Not empty, skip this cycle
-
-	; ; If the transmit data register is empty, sends the character to it
-	;                      mov         dx , 3F8H           	; Transmit data register address
-	;                      mov         al, ConfirmChar
-	;                      out         dx , al
-
-
+	; Receive the other side's name first
 						 LEA DI, userName2
 	ReceiveNameCharSlave:
 	; Check that data recieve register is Ready
 						 mov CX,0
 	                     mov         dx , 3FDH           		; Line Status Register address
-	CHKSlave:            in          al , dx 
-						 MoveCursor  CL,0
-						 inc cl
-						 DisplayChar 'X'
+	CHKSlave:            
+						 in          al , dx 
 	                     test        al , 1              		; Bit 1: data ready
-	                     JZ          CHKSlave             		  	; Not Ready, skip this cycle
+	                     JZ          CHKSlave             		; Not Ready, skip this cycle
 	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
 	                     mov         dx , 03F8H             	; Data recieving register address
 	                     in          al , dx
@@ -1667,6 +1674,7 @@ SlaveChatInit PROC
 						 INC 		 DI
 						 JMP 		 ReceiveNameCharSlave
 	EndReceivingNameSlave:
+	; Then send out your name
 						 LEA SI, userName
 						 ADD SI,2
 
@@ -1691,41 +1699,23 @@ SlaveChatInit PROC
 SlaveChatInit ENDP
 
 MasterChatInit PROC
-	; Check when the slave is ready for receiving info
 	; Send your own name bytes up and including a $
 	; Then receive the other side's name bytes until you encounter a $
 
-	ReceiveConfirmation:
-	; Check that data recieve register is Ready
-	                     mov         dx , 3FDH           		; Line Status Register address
-	CHKMasterConfirmation:in          al , dx
-	                     test        al , 1              		; Bit 1: data ready
-	                     JZ          CHKMasterConfirmation		; Not Ready, skip this cycle
-	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
-	                     mov         dx , 03F8H             	; Data recieving register address
-	                     in          al , dx
-						 CMP 		 AL, ConfirmChar
-						 JE  		 ReceivedConfirmation
-						 INC 		 DI
-						 JMP 		 ReceiveConfirmation
-	ReceivedConfirmation:
 						 LEA SI, userName
 						 ADD SI,2
 
 	; Check that Transmitter Holding Register is Empty
-	                     mov         dx , 3FDH           	; Line Status Register address
-	CheckHolderMaster:	 In          al , dx     ; Read Line Status
-	                     test        al , 00100000b      	; Bit 6: transmit shift register empty
-						 
-	                     JZ          CheckHolderMaster       ; Not empty, skip this cycle
-						 MOV CL,0
+	                     mov         dx , 3FDH           		; Line Status Register address
+	CheckHolderMaster:	 
+						 In          al , dx     				; Read Line Status
+	                     test        al , 00100000b      		; Bit 6: transmit shift register empty
+	                     JZ          CheckHolderMaster      	; Not empty, skip this cycle
+
 	; If the transmit data register is empty, sends the character to it
-	                     mov         dx , 3F8H           	; Transmit data register address
+	                     mov         dx , 3F8H           		; Transmit data register address
 	                     mov         al, BYTE PTR [SI]
 	                     out         dx , al
-						 MoveCursor  CL,0
-						 inc cl
-						 DisplayChar 'O'
 						 CMP 		 AL, '$'
 						 JE  		 EndSendingNameMaster
 						 INC 		 SI
@@ -1737,10 +1727,9 @@ MasterChatInit PROC
 	ReceiveNameCharMaster:
 	; Check that data recieve register is Ready
 	                     mov         dx , 3FDH           		; Line Status Register address
-	CHKMaster:            in          al , dx
+			CHKMaster:           		 
+						 in          al , dx
 	                     test        al , 1              		; Bit 1: data ready
-							inc cl
-						 DisplayChar '+'
 	                     JZ          CHKMaster         		  	; Not Ready, skip this cycle
 	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
 	                     mov         dx , 03F8H             	; Data recieving register address
@@ -1748,7 +1737,6 @@ MasterChatInit PROC
 	                     mov         BYTE PTR [DI] , al       	; Stores the recieved character
 						 CMP 		 AL, '$'
 						 JE  		 EndReceivingNameMaster
-
 						 INC 		 DI
 						 JMP 		 ReceiveNameCharMaster
 	EndReceivingNameMaster:
