@@ -16,6 +16,7 @@ MoveCursor MACRO X,Y
 	 mov  ah,2
 	 mov  dl,X
 	 mov  dh,Y
+	 MOV BH,0
 	 int  10h
  
 	 POP  DX   
@@ -53,6 +54,12 @@ ENDM FlushKeyBuffer
 DisplayMessage MACRO Message
 	 MOV 			AH, 9h
 	 MOV 			DX, OFFSET Message
+	 INT 21h	
+ENDM
+DisplayBuffer MACRO Message
+	 MOV 			AH, 9h
+	 MOV 			DX, OFFSET Message
+	 ADD 			DX,2
 	 INT 21h	
 ENDM
 HideCursor MACRO 
@@ -144,10 +151,13 @@ ENDM
 	 Welc          			DB 'Please Enter Your Name:', 13, 10, '$'
 	 Hel 		   			DB 'Please Enter any key to continue','$'
 	 Choices       			DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
-	 Info          			DB 13,10,'- You send a chat invitaion to ','$'
+	 Info          			DB 13,10,'- You sent a chat invitaion to ','$'
+	 ReceivedInvite			DB 13,10,'- You received a chat invitation from ','$'
+	 MyName LABEL BYTE
 	 userName      			DB 16,?, 16 DUP('$')
 	 userNameScore 			DB "'s Score : ", '$'
-	 userName2     			DB "Abdelrahman", '$' ; Fixed at Abdelrahman for now but should be whatever User types in chatting screen
+	 OtherName LABEL BYTE
+	 userName2     			DB 17 DUP('$') 			; Fixed at Abdelrahman NOT ANYMORE for now but should be whatever User types in chatting screen
 	 p1Score 	   			DB "Tarek's Score : ", '$'
 	 p2Score 	   			DB "Abdelrahman's Score :", '$'
 	 endGame 	   			DB "- To end the game with Abdelrahman, Press F4", '$'
@@ -175,6 +185,18 @@ ENDM
 			
 	;  DynamicBlock1 			DB 1
 	;  DynamicBlock2 			DB -1
+
+
+	UPPER_COLOR    			DB 00FH                   	; 0 For black BG and F for white FG (text)
+	LOWER_COLOR    			DB 0F0H                   	; Reverse the above
+	MyCursorPos    			DB 0,0                    	; x,y for the current side's cursor (Local messages will be displayed at the top)
+	OtherCursorPos 			DB 0,13                   	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
+	Recieved     			DB 0                      	; The recieved character
+	Sent         			DB 0                      	; The sent character
+	; MyName       			DB 16,6,"AAA", 12 DUP('$')
+	; OtherName	   			DB 17 DUP('$')
+	InviteChar     			EQU 2BH 
+	ConfirmChar				EQU 2AH
 
 .CODE
 MAIN PROC FAR
@@ -239,11 +261,35 @@ MAIN PROC FAR
 		 MoveCursor 18H, 0AH
 		 
 		 DisplayMessage Choices					; Display Options
-				
+		
+		 CALL Connect 							; Initialize the connection
 	;------------------------------Get Input and validate it--------------------------------------;
 	CHS:
-		 MOV 			AH, 0
-		 INT 16h
+
+		; Checking if an invitation arrived
+		; Check that data recieve register is Ready
+						mov         dx , 3FDH           	; Line Status Register address
+		CHK: 			in          al , dx
+	                    test        al , 1              	; Bit 1: data ready
+	                    JZ          NothingReceived			; Not Ready, skip this cycle
+
+		; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                    mov         dx , 03F8H          	; Data recieving register address
+	                    in          al , dx
+						CMP 		AL, InviteChar			; Check if the incoming byte is the invitation char
+						; If so, exchange names
+						; The slave side should first receive the name of the master, then send out it's own name
+						JE			SlaveChat					
+		NothingReceived:
+					
+	; Check if a key is pressed
+	     MOV         AH,1
+	     INT         16H                 	; Sets the ZF = 0 if a key is available, ZF = 1 if not
+	     JZ          CHS             		; Skips checking for input if there's no input
+            
+	; If it was, get it, display it then send it
+	     MOV         AH,0
+	     INT         16H
 		
 		 CMP AH, 1   		       	   ; Check for ESC
 		 JNZ NotExit
@@ -260,13 +306,36 @@ MAIN PROC FAR
 		 NotF2:
 		 	CMP AH, 3Bh 		       ; Check for F1
 		 	JNZ CHS 			       ; if the pressed key not an option, loop till it is
-
+		; If one side presses F1, send out the invitation byte, wait for a reply
+		; Check that Transmitter Holding Register is Empty
+		                    mov         dx , 3FDH           	; Line Status Register address
+		 AGAIN:             In          al , dx             	; Read Line Status
+		                    test        al , 00100000b      	; Bit 6: transmit shift register empty
+		                    JZ          CHS                	; Not empty, skip this cycle
+						  		; If the transmit data register is empty, sends the character to it
+	        				mov         dx , 3F8H           	; Transmit data register address
+	        				mov         al, InviteChar
+	        				out         dx , al
+							JMP			MasterChat
 ;=================================================================================================
 ;										 Chatting Module 
 ;=================================================================================================
+	SlaveChat:
+		CALL SlaveChatInit
+		DisplayMessage ReceivedInvite
+		DisplayMessage userName2
+		JMP Chatting
 
+	MasterChat:
+		CALL MasterChatInit
+		MoveCursor 0,78
+		DisplayMessage Info
+		DisplayMessage userName2
+		JMP Chatting
+
+	;To be Continued "D IS THAT AN EMOJI!?
 	Chatting:		
-		;To be Continued "D IS THAT AN EMOJI!?
+		CALL Chat
 		;Move cursor to the footer
 		 MoveCursor 00H, 15H
 		
@@ -1317,7 +1386,7 @@ EndInputP2:
 	exitGame:
 	 RET
 
-ENDP              
+GetPlayerInput ENDP              
 	
 Player1Shoot PROC
 	 LEA SI, PlayerOne
@@ -1534,6 +1603,368 @@ DrawBlockTwo:
 
 	RET
 DrawBlocks ENDP
+
+Chat PROC
+	; Clears the screen, splits the top half and the bottom half
+	                     CALL        INIT
+						 LEA SI, MyCursorPos
+						 MOV CL, BYTE PTR [SI]
+						 MOV CH, BYTE PTR [SI+1]
+						 MoveCursor CL,CH
+						 DisplayBuffer userName
+						 INC BYTE PTR [SI+1]
+
+						 LEA DI, OtherCursorPos
+						 MOV CL, BYTE PTR [DI]
+						 MOV CH, BYTE PTR [DI+1]
+						 MoveCursor CL,CH
+						 DisplayMessage userName2
+						 INC BYTE PTR [DI+1]
+
+	lewp:                
+	                     CALL        Send
+	                     CALL        Recieve
+	                     JMP         lewp
+
+	                     RET
+Chat ENDP
+
+SlaveChatInit PROC
+	; Give the master a signal so it starts sending data
+	; Receive the other side's name bytes until you encounter a $
+	; Then send your own name bytes up and including a $
+
+	; 	; Check that Transmitter Holding Register is Empty
+	;                      mov         dx , 3FDH           	; Line Status Register address
+	; SendConfimation:     In          al , dx     ; Read Line Status
+	;                      test        al , 00100000b      	; Bit 6: transmit shift register empty
+	;                      JZ          SendConfimation       ; Not empty, skip this cycle
+
+	; ; If the transmit data register is empty, sends the character to it
+	;                      mov         dx , 3F8H           	; Transmit data register address
+	;                      mov         al, ConfirmChar
+	;                      out         dx , al
+
+
+						 LEA DI, userName2
+	ReceiveNameCharSlave:
+	; Check that data recieve register is Ready
+						 mov CX,0
+	                     mov         dx , 3FDH           		; Line Status Register address
+	CHKSlave:            in          al , dx 
+						 MoveCursor  CL,0
+						 inc cl
+						 DisplayChar 'X'
+	                     test        al , 1              		; Bit 1: data ready
+	                     JZ          CHKSlave             		  	; Not Ready, skip this cycle
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                     mov         dx , 03F8H             	; Data recieving register address
+	                     in          al , dx
+	                     mov         BYTE PTR [DI] , al       	; Stores the recieved character
+						 CMP 		 AL, '$'
+						 JE  		 EndReceivingNameSlave
+
+						 INC 		 DI
+						 JMP 		 ReceiveNameCharSlave
+	EndReceivingNameSlave:
+						 LEA SI, userName
+						 ADD SI,2
+
+	; Check that Transmitter Holding Register is Empty
+	                     mov         dx , 3FDH           	; Line Status Register address
+	CheckHolderSlave:    In          al , dx     ; Read Line Status
+	                     test        al , 00100000b      	; Bit 6: transmit shift register empty
+	                     JZ          CheckHolderSlave       ; Not empty, skip this cycle
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov         dx , 3F8H           	; Transmit data register address
+	                     mov         al, BYTE PTR [SI]
+	                     out         dx , al
+
+						 CMP 		 AL, '$'
+						 JE  		 EndSendingNameSlave
+						 INC 		 SI
+						 JMP 		 CheckHolderSlave
+	EndSendingNameSlave:             
+	                
+	                     RET
+SlaveChatInit ENDP
+
+MasterChatInit PROC
+	; Check when the slave is ready for receiving info
+	; Send your own name bytes up and including a $
+	; Then receive the other side's name bytes until you encounter a $
+
+	ReceiveConfirmation:
+	; Check that data recieve register is Ready
+	                     mov         dx , 3FDH           		; Line Status Register address
+	CHKMasterConfirmation:in          al , dx
+	                     test        al , 1              		; Bit 1: data ready
+	                     JZ          CHKMasterConfirmation		; Not Ready, skip this cycle
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                     mov         dx , 03F8H             	; Data recieving register address
+	                     in          al , dx
+						 CMP 		 AL, ConfirmChar
+						 JE  		 ReceivedConfirmation
+						 INC 		 DI
+						 JMP 		 ReceiveConfirmation
+	ReceivedConfirmation:
+						 LEA SI, userName
+						 ADD SI,2
+
+	; Check that Transmitter Holding Register is Empty
+	                     mov         dx , 3FDH           	; Line Status Register address
+	CheckHolderMaster:	 In          al , dx     ; Read Line Status
+	                     test        al , 00100000b      	; Bit 6: transmit shift register empty
+						 
+	                     JZ          CheckHolderMaster       ; Not empty, skip this cycle
+						 MOV CL,0
+	; If the transmit data register is empty, sends the character to it
+	                     mov         dx , 3F8H           	; Transmit data register address
+	                     mov         al, BYTE PTR [SI]
+	                     out         dx , al
+						 MoveCursor  CL,0
+						 inc cl
+						 DisplayChar 'O'
+						 CMP 		 AL, '$'
+						 JE  		 EndSendingNameMaster
+						 INC 		 SI
+						 JMP 		 CheckHolderMaster
+	EndSendingNameMaster:      
+
+						 LEA DI, userName2
+
+	ReceiveNameCharMaster:
+	; Check that data recieve register is Ready
+	                     mov         dx , 3FDH           		; Line Status Register address
+	CHKMaster:            in          al , dx
+	                     test        al , 1              		; Bit 1: data ready
+							inc cl
+						 DisplayChar '+'
+	                     JZ          CHKMaster         		  	; Not Ready, skip this cycle
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                     mov         dx , 03F8H             	; Data recieving register address
+	                     in          al , dx
+	                     mov         BYTE PTR [DI] , al       	; Stores the recieved character
+						 CMP 		 AL, '$'
+						 JE  		 EndReceivingNameMaster
+
+						 INC 		 DI
+						 JMP 		 ReceiveNameCharMaster
+	EndReceivingNameMaster:
+	                
+	                     RET
+MasterChatInit ENDP
+
+Connect PROC
+	
+	; The below block was copied straight out of the lab
+	;  Set Divisor Latch Access Bit
+	                     mov         dx,3fbh             	; Line Control Register
+	                     mov         al,10000000b        	;Set Divisor Latch Access Bit
+	                     out         dx,al               	;Out it
+	;  Set LSB byte of the Baud Rate Divisor Latch register.
+	                     mov         dx,3f8h
+	                     mov         al,0ch
+	                     out         dx,al
+	;  Set MSB byte of the Baud Rate Divisor Latch register.
+	                     mov         dx,3f9h
+	                     mov         al,00h
+	                     out         dx,al
+	;  Set port configuration
+	                     mov         dx,3fbh
+	                     mov         al,00011011b
+	;  0:Access to Receiver buffer, Transmitter buffer
+	;  0:Set Break disabled
+	;  011:Even Parity
+	;  0:One Stop Bit
+	;  11:8bits
+	                     out         dx,al
+						 RET
+
+Connect ENDP
+
+INIT PROC
+	; Might be useful to convert to a macro/proc later as it'll be used to scroll
+	; Colors the top half
+	;  mov         ah,6                	; function 6 (How descriptive, Eng.Sandra...)
+	;  mov         al,0                	; How many lines to scroll
+	;  mov         bh,UPPER_COLOR      	; Black FG and white BG
+	;  mov         ch,0                	; upper left Y
+	;  mov         cl,0                	; upper left X
+	;  mov         dh,24               	; lower right Y
+	;  mov         dl,79               	; lower right X
+	;  int         10h
+
+	; ; Colors the bottom half
+	;                      mov         ah,6
+	;                      mov         al,0
+	;                      mov         bh,LOWER_COLOR      	; White BG and black FG
+	;                      mov         ch,13
+	;                      mov         cl,0
+	;                      mov         dh,24
+	;                      mov         dl,79
+	;                      int         10h
+
+	                     MOV         AH,0
+	                     MOV         AL, 03
+	                     INT         10H
+	                     LEA         SI,OtherCursorPos
+						 MOV         BL,BYTE PTR [SI]
+	                     MOV         BH,BYTE PTR [SI+1]
+	                     DEC         BH
+	                     mov  ah,2
+	 					 mov  dl,0
+	 					 mov  dh,13
+	 					 int  10h
+	                     MOV         CX , 80
+	Seperate:            
+	                     DisplayChar '-'
+	                     Loop        Seperate
+	
+	                     RET
+INIT ENDP
+
+Send PROC
+
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that Transmitter Holding Register is Empty
+	                     mov         dx , 3FDH           	; Line Status Register address
+	AGAINSend:               In          al , dx             	; Read Line Status
+	                     test        al , 00100000b      	; Bit 6: transmit shift register empty
+	                     JZ          Skip                	; Not empty, skip this cycle
+            
+	; https://vitaly_filatov.tripod.com/ng/asm/asm_027.2.html
+	; Check if a key is pressed
+	                     MOV         AH,1
+	                     INT         16H                 	; Sets the ZF = 0 if a key is available, ZF = 1 if not
+	                     JZ          NoInput             	; Skips sending any character if ZF = 1 to avoid repeating characters
+            
+	; If it was, get it, display it then send it
+	                     MOV         AH,0
+	                     INT         16H
+	                     MOV         Sent,AL             	; Stores it, probably not needed though since AL is not used later
+
+	; Display the character
+	                     MOV         BL,BYTE PTR [SI]    	; Loads the local cursor's x
+	                     MOV         BH,BYTE PTR [SI+1]  	; Same but for the y
+	                     MoveCursor  BL,BH               	; Moves the cursor to the top half
+	                     DisplayChar Sent
+	                     INC         BYTE PTR [SI]       	; Moves the x coordinate by 1 to the right to avoid overwriting
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov         dx , 3F8H           	; Transmit data register address
+	                     mov         al, Sent
+	                     out         dx , al
+	NoInput:             
+	Skip:                
+	                     RET
+Send ENDP
+
+Recieve PROC
+    
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that data recieve register is Ready
+	                     mov         dx , 3FDH           	; Line Status Register address
+	CHKReceive:                 in          al , dx
+	                     test        al , 1              	; Bit 1: data ready
+	                     JZ          ABORT               	; Not Ready, skip this cycle
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                     mov         dx , 03F8H          	; Data recieving register address
+	                     in          al , dx
+	                     mov         Recieved , al       	; Stores the recieved character
+
+	; Displays the recieved character
+	                     MOV         CL,BYTE PTR [DI]    	; x
+	                     MOV         CH,BYTE PTR [DI+1]  	; y
+	                     MoveCursor  CL,CH
+	                     DisplayChar Recieved
+	                     INC         BYTE PTR [DI]       	; Moves the away cursor 1 character to the right
+	ABORT:               
+	                     RET
+Recieve ENDP
+
+ExchangeNames PROC
+
+	; Sending out my own name
+	; This can send up to 16 characters or until it encounters a '$'
+	; Check that Transmitter Holding Register is Empty
+
+	; Load how many characters are in the name
+	                     LEA         DI, MyName
+	                     MOV         CH,0
+	                     MOV         CL, BYTE PTR [DI+1]
+	; Points DI at the first character
+	                     ADD         DI,2
+	                     LEA         SI,MyCursorPos
+						 
+	SendNextCharacter:   
+	                     mov         dx , 3FDH           	; Line Status Register address
+	AGAINEXG:            In          al , dx             	; Read Line Status
+	                     test        al , 00100000b      	; Bit 6: transmit shift register empty
+	                     JZ          AGAINEXG            	; Not empty, skip this cycle
+	
+	; Then sends out the characters byte by byte
+	; If the transmit data register is empty, sends the character to it
+	                     mov         dx , 3F8H           	; Transmit data register address
+	                     mov         al, BYTE PTR [DI]
+	                     out         dx , al
+
+	; Next character
+	                     CMP         BYTE PTR[DI], '$'
+	                     JE          EndNameSending
+
+	                     MOV         BL, BYTE PTR [SI]
+	                     MOV         BH, BYTE PTR [SI+1]
+	                     MoveCursor  BL,BH
+	                     DisplayChar AL
+
+	                     INC         DI
+	                     INC         BYTE PTR [SI]
+	                     Loop        SendNextCharacter
+	                     INC         BYTE PTR [SI+1]
+	EndNameSending:      
+
+
+
+	; Receiving the name from the other side
+	                     LEA         DI, OtherName
+	                     MOV         CH,0
+	                     MOV         CL, BYTE PTR [DI+1]
+	;  DEC         CX                  	; 16 chars for the name, 1 char as a safety net
+	                     INC         DI                  	; Should point at the first char now
+	                     LEA         SI, OtherCursorPos
+	
+	; Check that data recieve register is Ready
+	RecieveNextCharacter:
+	                     mov         dx , 3FDH           	; Line Status Register address
+	CHKEXG:              in          al , dx
+	                     test        al , 1              	; Bit 1: data ready
+	                     JZ          CHKEXG              	; Not Ready, skip this cycle
+
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                     mov         dx , 03F8H          	; Data recieving register address
+	                     in          al , dx
+	                     mov         BYTE PTR[DI] , al   	; Stores the recieved character
+	                     CMP         BYTE PTR [DI],'$'
+	                     JE          EndNameReceiving
+
+	                     MOV         BL, BYTE PTR [SI]
+	                     MOV         BH, BYTE PTR [SI+1]
+	                     MoveCursor  BL,BH
+	                     DisplayChar AL
+	                     INC         BYTE PTR [SI]
+	                     INC         DI
+
+	                     LOOP        RecieveNextCharacter
+	                     INC         BYTE PTR [SI+1]
+
+	EndNameReceiving:    
+
+	; Display both strings at the appropriate location
+
+	                     RET
+ExchangeNames ENDP
 
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
