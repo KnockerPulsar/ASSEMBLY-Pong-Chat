@@ -55,6 +55,11 @@ DisplayMessage MACRO Message
 	 MOV 			DX, OFFSET Message
 	 INT 21h	
 ENDM
+DisplayBuffer MACRO Buffer
+	 MOV 			AH, 9h
+	 MOV 			DX, OFFSET Buffer + 2
+	 INT 21h	
+ENDM
 HideCursor MACRO 
 	 mov ch, 32
  	 mov ah, 1
@@ -888,7 +893,7 @@ StaticLayout PROC
 	 MoveCursor 01H, 17d
 	 LEA SI, userName
 	 ADD SI, 2
-	 DisplayMessage SI
+	 DisplayBuffer userName
 	 DEC SI
 	 MOV AL, 01D
 	 ADD AL, [SI]
@@ -1317,7 +1322,7 @@ EndInputP2:
 	exitGame:
 	 RET
 
-ENDP              
+GetPlayerInput ENDP              
 	
 Player1Shoot PROC
 	 LEA SI, PlayerOne
@@ -1439,7 +1444,7 @@ WinScreen PROC
 	 MOV DH, 2D
 	 DIV DH
 	 MoveCursor AL, 12D
-	 DisplayMessage  SI  								
+	 DisplayBuffer userName  								
 	 ADD AL, [SI - 1]
 	 MoveCursor AL, 12D
 	 DisplayMessage WinCondition						
