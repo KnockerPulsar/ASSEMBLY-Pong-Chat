@@ -111,10 +111,10 @@ ENDM
 	 
 	 ; Bullet DB xPos, yPos, xVel, yVel, active
 	 ; Player1 bullets
-	 P1Bullet1 				DB 40, 12, 2, 0, 0
+	 P1Bullet1 				DB 40, 12, 1, 0, 0
      
 	 ; Player2 bullets
-	 P2Bullet1 				DB 40, 12, -2, 0, 0
+	 P2Bullet1 				DB 40, 12, -1, 0, 0
 	 ;DB '$'				; we use it as indicator for the end of the bullets
 		 
 	 ;One of the following is used when a bullet hits a stonepile (xPos, yPos, xVel, yVel, active)
@@ -122,11 +122,13 @@ ENDM
 	 ;ExtraBullet2			DB 40, 12, -2, 0, 0
 	 DB '$'
 	 ExtraNum 				EQU 1
+	
 	; Cactus data
 	; =============================================================================================
 	; xPos, yPos pairs
 	 CactusNum    			EQU 2 
 	 Cactus       			DB 32d,11d,11d,5d,'$'
+	 CactusLevel2   		DB 62d,5d,20d,12d,'$'
 	 CactusSymbol 			EQU 206
      
 	; Barrel data
@@ -134,6 +136,7 @@ ENDM
 	; xPos, yPos pairs Will be changed later to -> xPos, yPos, Height
 	 BarrelNum 				EQU 2
 	 Barrel 				DB 40d,4d,50d,1d,'$'
+	 BarrelLevel2			DB 9d,5d,69d,10d,'$'
 	 ;Barrel 				DB 40d,4d,2d,50d,1d,3d,'$' ->(xPos, yPos, Height)
 	 BarrelSymbol 			EQU 178
 
@@ -142,6 +145,7 @@ ENDM
 	; xPos, yPos pairs
 	 StonePileNum 			EQU 2
 	 StonePile 				DB 60d,8d,12d,10d,'$'
+	 StonePileLevel2		DB 50d,3d,13d,9d,'$'
 	 StonePileSymbol 		EQU 234
 	 
 	; Displayed messages
@@ -164,6 +168,10 @@ ENDM
 	 RoundSystemTime		DB ?				   	; Storing only seconds to detect when 1 second has passed		
 	 RoundTime 				DB 34H,35H
 	 DefaultTime			DB 34H,35H
+	 ChooseDiff				DB "Please Choose a difficulty",'$'
+	 Difficulties			DB '  * For easy, press 1', 13,10,13,10, 09,09,09, '  * For medium press, 2', '$'
+	 ChooseLevel			DB "Please Choose a level",'$'
+	 Levels					DB '  * For level 1, press 1', 13,10,13,10, 09,09,09, '  * For level 2, press 2', '$'
 
 	; Other variables
 	; ============================================================================================= 
@@ -180,6 +188,13 @@ ENDM
 			
 	;  DynamicBlock1 			DB 1
 	;  DynamicBlock2 			DB -1
+
+	; Difficulty & Levels
+	; ============================================================================================= 
+	; Speed multipliers
+	ChosenDiff 			    DB ?
+	MaxBullets			    DB ?
+	CurrLevel			 	DB ?
 
 .CODE
 MAIN PROC FAR
@@ -257,6 +272,8 @@ MAIN PROC FAR
 		 NotExit:
 		 	CMP AH, 3Ch 		       ; Check for F2
 		 	JNZ NotF2
+			CALL DifficultySelect
+			CALL LevelSelect
 		 	CALL ResetRound            ; Reset the player positions
 		 	MOV PlayerOneScore, 30H    ; Reset both players' scores
 		 	MOV PlayerTwoScore, 30H
@@ -371,7 +388,18 @@ CactusColls PROC
 ; =================================================================================================
 
 	 LEA DI, P1Bullet1			 							; Starting with bullet 1
-	 LEA SI, Cactus 										; To Iterate on the cactus objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the cactus
+	 
+	 CMP CurrLevel,1
+	 JE Level1Cactus
+	 CMP CurrLevel,2
+	 JE Level2Cactus
+
+	 Level1Cactus:
+	 	LEA SI, Cactus 										; To Iterate on the cactus objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the cactus
+		JMP CactusCollisions
+	 Level2Cactus:
+	 	LEA SI, CactusLevel2
+		JMP CactusCollisions
 
 CactusCollisions:
 	forEachBullet:
@@ -474,7 +502,17 @@ BarrelColls PROC
 ;  Barrel Collisions Checks
 ; =================================================================================================
 
-	 LEA SI, Barrel 										; To Iterate on the barrel objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the top of the barrel
+	 CMP CurrLevel,1
+	 JE Level1Barrels
+	 CMP CurrLevel,2
+	 JE Level2Barrels
+
+	 Level1Barrels:
+	 	LEA SI, Barrel 										; To Iterate on the barrel objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the top of the barrel
+		JMP StartFromBullet1
+	 Level2Barrels:
+	 	LEA SI, BarrelLevel2
+		JMP StartFromBullet1
 
 StartFromBullet1:
 	 LEA DI, P1Bullet1			 							; Starting with bullet 1
@@ -504,9 +542,10 @@ BarrelCollisions:
 		 MOV BH, BYTE PTR [SI+1]
 		 CMP BL,BH
 		 JL GetBullet
-		 ADD BH, 2											; 2 here is the height can be inputed as a variable in the barrel's data instead
+		 ; We already checked the top block, only need to check 1 block down
+		 ADD BH, 1											 ; 2 here is the height can be inputed as a variable in the barrel's data instead
 		 ;MOV DL, BYTE PTR[SI+2]
-		 ;ADD BH, DL 											;In case of length variable
+		 ;ADD BH, DL 										In case of length variable
 		 CMP BL,BH
 		 JG GetBullet
 ;       ----------------------------Barrel Parts Logic when hit -----------------------------------    ;
@@ -553,8 +592,18 @@ StonepileColls PROC
 ; =================================================================================================
 ;  StonePile Collisions Checks
 ; =================================================================================================
+	 
+	 CMP CurrLevel,1
+	 JE Level1StonePile
+	 CMP CurrLevel,2
+	 JE Level2StonePile
 
-	 LEA SI, StonePile 										; To Iterate on the stonepile objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the stonepile
+	 Level1StonePile:
+	 	LEA SI, StonePile 										; To Iterate on the StonePile objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the StonePile
+		JMP SPStartFromBullet1
+	 Level2StonePile:
+	 	LEA SI, StonePileLevel2
+		JMP SPStartFromBullet1
 
 SPStartFromBullet1:
 	 LEA DI, P1Bullet1			 							; Starting with bullet 1
@@ -787,9 +836,9 @@ MoveBullets:
 	 MOV DH, BYTE PTR [SI + 1]   							; Current bullet yPos
 
 ;								--------------Boundaries Checks----------------								;
-	 CMP DL, 1												
+	 CMP DL, 2												
 	 JL DeactivateBullet										
-	 CMP DL, 79
+	 CMP DL, 78
 	 JG DeactivateBullet
  
  	 CMP DH, 1
@@ -1117,9 +1166,21 @@ DrawBullets:
 ; Cactus Drawing 
 ; ---------------------------------------------------------------------------------------------------
 
- 	 MOV SI, OFFSET Cactus
+	
  	 MOV CX, 0
  	 MOV CL, CactusNum
+ 	 	 
+	 CMP CurrLevel,1
+	 JE Level1CactusDraw
+	 CMP CurrLevel,2
+	 JE Level2CactusDraw
+
+	 Level1CactusDraw:
+	 	LEA SI, Cactus 										; To Iterate on the cactus objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the cactus
+		JMP DrawCactus
+	 Level2CactusDraw:
+	 	LEA SI, CactusLevel2
+		JMP DrawCactus
 
 DrawCactus:
 	 MOV DL, [SI] 												;xPos of the upper part of the cactus
@@ -1141,9 +1202,20 @@ DrawCactus:
 ; ---------------------------------------------------------------------------------------------------
 ; Barrel Drawing 
 ; ---------------------------------------------------------------------------------------------------
-	 MOV SI, OFFSET Barrel
 	 MOV CX, 0
 	 MOV CL, BarrelNum
+
+	 CMP CurrLevel,1
+	 JE Level1BarrelDraw
+	 CMP CurrLevel,2
+	 JE Level2BarrelDraw
+
+	 Level1BarrelDraw:
+	 	LEA SI, Barrel 										; To Iterate on the Barrel objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the Barrel
+		JMP DrawBarrel
+	 Level2BarrelDraw:
+	 	LEA SI, BarrelLevel2
+		JMP DrawBarrel
 
 DrawBarrel:
 	 MOV DL, [SI] 												;xPos of the upper part of the barrel
@@ -1168,9 +1240,22 @@ DrawBarrel:
 ; ---------------------------------------------------------------------------------------------------
 ; StonePile Drawing 
 ; ---------------------------------------------------------------------------------------------------
-	 MOV SI, OFFSET StonePile
 	 MOV CX, 0
 	 MOV CL, StonePileNum
+
+	 CMP CurrLevel,1
+	 JE Level1StonePileDraw
+	 CMP CurrLevel,2
+	 JE Level2StonePileDraw
+
+	 Level1StonePileDraw:
+	 	LEA SI, StonePile 										; To Iterate on the StonePile objects to check collisions ,  [SI] and [SI+1] are xPos and yPos of the StonePile
+		JMP DrawStonePile
+	 Level2StonePileDraw:
+	 	LEA SI, StonePileLevel2
+		JMP DrawStonePile
+
+
 DrawStonePile:													;Here we only need one loop since the stonepile consists of only one position (i.e its height is 1)
 	 MOV DL, [SI] 												;xPos of the stonepile
 	 MOV DH, [SI+1]												;yPos of the stonepile
@@ -1335,13 +1420,14 @@ Player1Shoot PROC
 	 DEC BYTE PTR[SI + 2]     					 			; Decrease the player's bullet stash by 1
 	 INC AL													; Incrementing AL so that it's now in front of the player
 	 
-	 MOV BYTE PTR [DI],AL
-	 MOV BYTE PTR [DI + 1], AH
-	 MOV BYTE PTR [DI + 4], 1
-	 MOV BYTE PTR [SI+3],1
+	 MOV BYTE PTR [DI],AL									; Setting the bullet's x coordinate 
+	 MOV BYTE PTR [DI + 1], AH								; Setting the bullet's x coordinate 
+	 MOV BYTE PTR [DI + 4], 1								; Setting the bullet's active flag
+	 MOV BYTE PTR [SI+3],1								    ; Setting the player's bullets in the arena
  
-	 MOV BYTE PTR [DI+2],2 
-	 MOV BYTE PTR [DI+3],0
+	 MOV BL, ChosenDiff
+	 MOV BYTE PTR [DI+2],BL							; Setting the bullet's horizontal speed (Done in difficulty setup now)
+	 MOV BYTE PTR [DI+3],0									; Resetting the bullet's vertical speed (just in case)
 
 	 RET
 Player1Shoot ENDP
@@ -1360,7 +1446,11 @@ Player2Shoot PROC
 	 MOV BYTE PTR [DI + 1], AH
 	 MOV BYTE PTR [DI + 4], 1								; Setting the bullet's active flage
 	 MOV BYTE PTR [SI+3],1									; Setting the player's bulletsInArenaFlag
-	 MOV BYTE PTR [DI+2], -2								; reset the player xVel incase it was changed by an object
+	 ; AL = -1 * ChosenDiff
+	 MOV BL,ChosenDiff
+	 MOV AL, -1
+	 MUL BL
+	 MOV BYTE PTR [DI+2], AL								; reset the player xVel incase it was changed by an object
 	 MOV BYTE PTR [DI+3],0									; reset the player yVel incase it was changed by an object
 	 RET
 Player2Shoot ENDP
@@ -1374,8 +1464,9 @@ ResetRound PROC
 	 MOV AL, LeftPlayerIitialCol							; Default values
 	 MOV BYTE PTR [SI], AL
 	 MOV AL, PlayerInitialRow
+	 MOV AH, MaxBullets
 	 MOV BYTE PTR [SI + 1], AL
-	 MOV BYTE PTR [SI + 2], 3
+	 MOV BYTE PTR [SI + 2], AH
 	 MOV BYTE PTR [SI + 3], 0
 
 ; ---------------------------------------------------------------------------------------------------
@@ -1386,8 +1477,9 @@ ResetRound PROC
 	 MOV AL, RightPlayerIitialCol							; Default values
 	 MOV BYTE PTR [SI], AL
 	 MOV AL, PlayerInitialRow
+	 MOV AH, MaxBullets
 	 MOV BYTE PTR [SI + 1], AL
-	 MOV BYTE PTR [SI + 2], 3
+	 MOV BYTE PTR [SI + 2], AH
 	 MOV BYTE PTR [SI + 3], 0
 
 ; ---------------------------------------------------------------------------------------------------
@@ -1539,6 +1631,68 @@ DrawBlockTwo:
 
 	RET
 DrawBlocks ENDP
+
+DifficultySelect PROC
+	ClearScreen
+	MoveCursor 18H, 0AH
+	DisplayMessage ChooseDiff
+
+	MoveCursor 18H, 0CH
+	DisplayMessage Difficulties 
+
+DiffMenu:
+	MOV AH,0
+	INT 16H
+
+	CMP AH, 02
+	JE ChoseEasy
+	CMP AH, 03
+	JE ChoseMedium
+	JMP DiffMenu
+
+; Change bullet speed depending on the chosen difficulty
+
+ChoseEasy:	
+	MOV ChosenDiff, 1
+	MOV MaxBullets, 5
+	JMP DiffChosen 			
+ChoseMedium:
+	MOV ChosenDiff, 2
+	MOV MaxBullets, 3
+	JMP DiffChosen
+
+DiffChosen:
+	RET
+DifficultySelect ENDP
+
+LevelSelect PROC
+	ClearScreen
+	MoveCursor 18H, 0AH
+	DisplayMessage ChooseLevel
+
+	MoveCursor 18H, 0CH
+	DisplayMessage Levels 
+
+LevelMenu:
+	MOV AH,0
+	INT 16H
+
+	CMP AH, 02
+	JE Level1
+	CMP AH, 03
+	JE Level2
+	JMP LevelMenu
+
+Level1:
+	MOV CurrLevel,1
+	JMP LevelChosen
+Level2:
+	MOV CurrLevel,2
+	JMP LevelChosen
+
+LevelChosen:
+	RET
+LevelSelect ENDP
 
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
