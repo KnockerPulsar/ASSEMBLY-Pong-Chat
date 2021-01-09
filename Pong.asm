@@ -120,23 +120,23 @@ ENDM
 	 ;One of the following is used when a bullet hits a stonepile (xPos, yPos, xVel, yVel, active)
 	 ExtraBullet1 			DB 40, 12, 2, 0, 0
 	 ;ExtraBullet2			DB 40, 12, -2, 0, 0
-	 DB '$'
+	 DB '~'
 	 ExtraNum 				EQU 1
 	
 	; Cactus data
 	; =============================================================================================
 	; xPos, yPos pairs
 	 CactusNum    			EQU 2 
-	 Cactus       			DB 32d,11d,11d,5d,'$'
-	 CactusLevel2   		DB 62d,5d,20d,12d,'$'
+	 Cactus       			DB 32d,11d,11d,5d,'~'
+	 CactusLevel2   		DB 62d,5d,20d,12d,'~'
 	 CactusSymbol 			EQU 206
      
 	; Barrel data
 	; =============================================================================================
 	; xPos, yPos pairs Will be changed later to -> xPos, yPos, Height
 	 BarrelNum 				EQU 2
-	 Barrel 				DB 40d,4d,50d,1d,'$'
-	 BarrelLevel2			DB 9d,5d,69d,10d,'$'
+	 Barrel 				DB 40d,4d,50d,1d,'~'
+	 BarrelLevel2			DB 9d,5d,69d,10d,'~'
 	 ;Barrel 				DB 40d,4d,2d,50d,1d,3d,'$' ->(xPos, yPos, Height)
 	 BarrelSymbol 			EQU 178
 
@@ -144,8 +144,8 @@ ENDM
 	; =============================================================================================
 	; xPos, yPos pairs
 	 StonePileNum 			EQU 2
-	 StonePile 				DB 60d,8d,12d,10d,'$'
-	 StonePileLevel2		DB 50d,3d,13d,9d,'$'
+	 StonePile 				DB 60d,8d,12d,10d,'~'
+	 StonePileLevel2		DB 50d,3d,13d,9d,'~'
 	 StonePileSymbol 		EQU 234
 	 
 	; Displayed messages
@@ -405,21 +405,61 @@ CactusCollisions:
 	forEachBullet:
 		 MOV CH , 0 				  						; Will be used for jumping when checking x+1 and x
 		 MOV AL, BYTE PTR [DI + 4] 							; Carries the current bullet's active flag
-		 CMP AL, 1				  							; Checking if the bullet is active
-		 JNZ InactiveBullet		  							; If not, skip the collision check
-	 
+		 CMP AL, 0				  							; Checking if the bullet is active
+		 JNZ ActiveBulletCactus	  							; If not, skip the collision check
+	 	 JMP InactiveBullet
+		  
+		 ActiveBulletCactus:
 		 MOV BL, BYTE PTR [DI]	  							; Otherwise, load xPos and yPos into BL and BH
 		 MOV BH, BYTE PTR [DI + 1]
 	 
 		 MOV CL, BYTE PTR [SI]								; Stores the cactus's xPos
-		 CMP BL, CL											; Check if the bullet xPos is the same as a cactus xPos
-		 JZ ChecksStart										; If the bullet's xPos and the cactus's xPos match, got a hit, don't increment CH
- 
-		 INC CL												; x = x+1
-		 CMP BL,CL											; If the bullet's xPos = cactus's xPos + 1, got a hit, don't increment CH
+		 MOV AH, BYTE PTR [DI + 2]							; Stores the bullet's xVel
+
+		 CMP BL,CL											; If the bullet exactly hit on the x, check the y
 		 JZ ChecksStart
+		 ADD BL,AH											; If the bullet WILL hit after moving, check the Y
+		 CMP BL,CL
+		 JZ ChecksStart
+		 SUB BL,AH
+
+		 CMP AH,0											; Since each bullet direction requires a different check
+		 JG LTRBulletCactus
+		 JL RTLBulletCactus
+
+
+		 LTRBulletCactus:
+		 ; Check if B.x < obj.x < B.x + xVel
+		 ; if B.x > obj.x, no hit
+		 CMP BL, CL
+		 JG nextBullet
+		 ; if obj.x > B.x + xVel, no hit
+		 ADD BL, AH
+		 CMP BL, CL
+		 JL nextBullet
+		 ; if B.x < obj.x < B.x + xVel, check yPos for a hit.
+		 JMP ChecksStart
+
+		 RTLBulletCactus:
+		 ; Check if B.x + xVel < obj.x < B.x
+		 ; if obj.x > B.x, no hit
+		 CMP BL,CL
+		 JL nextBullet 
+		 ; if obj.x < B.x + xVel, no hit
+		 ADD BL,AH
+		 CMP BL,CL
+		 JG nextBullet
+		 ; if B.x + xVel < obj.x < B.x, check yPos for a hit
+		 JMP ChecksStart
+
+		;  CMP BL, CL											; Check if the bullet xPos is the same as a cactus xPos
+		;  JZ ChecksStart										; If the bullet's xPos and the cactus's xPos match, got a hit, don't increment CH
  
-		 JNZ nextBullet										; If the bullet's xPos doesn't match neither the cactus's Xpos or Xpos + 1, check next bullet
+		;  INC CL												; x = x+1
+		;  CMP BL,CL											; If the bullet's xPos = cactus's xPos + 1, got a hit, don't increment CH
+		;  JZ ChecksStart
+ 
+		;  JNZ nextBullet										; If the bullet's xPos doesn't match neither the cactus's Xpos or Xpos + 1, check next bullet
 
 ChecksStart:												; if a bullet hits a cactus	
 		 MOV AL, [SI+1]										; get yPos of cactus
@@ -478,7 +518,7 @@ LowerPart:
 		nextBullet:					
 			ADD DI, BulletDataSize							; Loads the next bullet's data
 			MOV BL, [DI]									
-			CMP BL, '$'										
+			CMP BL, '~'										
 			JZ ResetBullet									; If we finished checking all bullets, reset the current bullet, check the next cactus
 			JMP forEachBullet								; else, continue with the current cactus
 
@@ -488,7 +528,7 @@ LowerPart:
 	NextCactus:
 		ADD SI, 2
 		MOV BL, [SI]
-		CMP BL, '$'											; if we finish checking for all cactuses
+		CMP BL, '~'											; if we finish checking for all cactuses
 		JZ FinishCactusColl										; stop iterating 
 		JMP CactusCollisions								; else, continue with the next cactus
 	
@@ -518,24 +558,74 @@ StartFromBullet1:
 	 LEA DI, P1Bullet1			 							; Starting with bullet 1
 BarrelCollisions:
 		 MOV BL, BYTE PTR [DI + 4] 							; Carries the current bullet's active flag
-		 CMP BL, 1				  							; Checking if the bullet is active
-		 JNZ GetBullet			  							; If not, skip the collision check
+		 CMP BL, 0				  							; Checking if the bullet is active
+		 JNZ ActiveBulletBarrel	  							; If not, skip the collision check
+		 JMP GetBullet
+ActiveBulletBarrel:
 
-		 MOV BL, BYTE PTR [DI+2]							;If the xVelo = 1, then do nothing and get the next bullet
-		 CMP BL, 1
-		 JZ GetBullet
-		 CMP BL, -1											;If the xVelo = -1, then do nothing and get the next bullet
-		 JZ GetBullet
-
+		 MOV AH,0
+		 MOV AL, ChosenDiff
+		 MOV DL, 3
+		 IDIV DL
 		 ;General Case: Collision occurs if xPos Bullet <= xPos Barrel <= xPos + xVel Bullet && yPos Bullet <= yPos Barrel <= yPos + yVel Bullet
 		 ;For now implement the case where the bullet is straight
 		 MOV BL, BYTE PTR [DI]								;Get the xPos of the bullet
 		 MOV BH, BYTE PTR [SI]								;Get the xPos of the barrel
+		 MOV DH, BYTE PTR [DI + 2]
+		 MOV CL, BYTE PTR [DI+2]							;If the xVelo =< 1/3 normal xVelo for this difficulty, then do nothing and get the next bullet
+		 
+		 CMP DH,0
+		 JG GoingRight
+		 JL GoingLeft
+
+GoingRight:
+		 CMP DH, AL 
+		 JLE GetBullet										; 1 <= 1, 1/3 = 0 So we want to skip this
+		 JMP canSlowDown
+GoingLeft:
+		 MOV DL,-1
+		 IMUL DL
+		 CMP DH, AL											;If the xVelo => -1/3 normal xVelo for this difficulty, then do nothing and get the next bullet
+		 JGE GetBullet										; -1 <= -1, -1/3 = 0 So we want to skip this
+		 JMP canSlowDown
+
+canSlowDown:
+
+		 CMP BL,BH											; If the bullet exactly hit on the x, check the y
+		 JZ CheckYColli
+		 ADD BL,DH											; If the bullet WILL hit after moving, check the Y
 		 CMP BL,BH
 		 JZ CheckYColli
-		 INC BH
+		 SUB BL,DH
+
+		 CMP DH,0											; Since each bullet direction requires a different check
+		 JG LTRBulletBarrel
+		 JL RTLBulletBarrel
+
+		 LTRBulletBarrel:
+		 ; Check if B.x < obj.x < B.x + xVel
+		 ; if B.x > obj.x, no hit
+		 CMP BL, BH
+		 JG GetBullet
+		 ; if obj.x > B.x + xVel, no hit
+		 ADD BL, DH
+		 CMP BL, BH
+		 JL GetBullet
+		 ; if B.x < obj.x < B.x + xVel, check yPos for a hit.
+		 JMP CheckYColli
+
+		 RTLBulletBarrel:
+		 ; Check if B.x + xVel < obj.x < B.x
+		 ; if obj.x > B.x, no hit
 		 CMP BL,BH
-		 JNZ GetBullet
+		 JL GetBullet 
+		 ; if obj.x < B.x + xVel, no hit
+		 ADD BL,DH
+		 CMP BL,BH
+		 JG GetBullet
+		 ; if B.x + xVel < obj.x < B.x, check yPos for a hit
+		 JMP CheckYColli
+
 
 	CheckYColli:
 		 MOV BL, BYTE PTR [DI+1]
@@ -557,7 +647,7 @@ BarrelCollisions:
 	NegativeSpeedx:
 		 MOV AH,0FFh										;Make AX a negative number
 	CalcX:
-		 MOV BL,2											;Decreasing the velocity to half its value
+		 MOV BL,3											;Decreasing the velocity to half its value
 		 IDIV BL											;Used IDIV instead of DIV since the xVel is signed
 		 MOV [DI+2], AL										;Assigning the xVel its new value
 
@@ -575,7 +665,7 @@ BarrelCollisions:
 		 GetBullet:					
 		 ADD DI, BulletDataSize								; Loads the next bullet's data
 		 MOV BL, [DI]									
-		 CMP BL, '$'										
+		 CMP BL, '~'										
 		 JZ NextBarrel										; If we finished checking all bullets, reset the current bullet, check the next barrel
 		 JMP BarrelCollisions								; else, continue with the current barrel
 
@@ -583,8 +673,10 @@ BarrelCollisions:
 		 ADD SI, 2
 		 ;ADD SI, 3 										;In case of length variable
 		 MOV BL, [SI]
-		 CMP BL, '$'										; if we finish checking for all barrel
-		 JNZ StartFromBullet1								; stop iterating else, continue with the next barrel
+		 CMP BL, '~'										; if we finish checking for all barrel
+		 JZ NoMoreBarrels								; stop iterating else, continue with the next barrel
+		 JMP StartFromBullet1
+NoMoreBarrels:
 
 BarrelColls ENDP
 
@@ -612,17 +704,57 @@ StonepileCollisions:
 		 INC DL
 		 MOV BL, BYTE PTR [DI + 4] 							; Carries the current bullet's active flag
 		 CMP BL, 1				  							; Checking if the bullet is active
-		 JNZ SPGetBullet			  						; If not, skip the collision check
-		 
+		 JZ CheckBullet			  						    ; If not, skip the collision check
+		 JMP SPGetBullet
+
+CheckBullet:
 		 ;General Case: Collision occurs if xPos Bullet <= xPos Stonepile <= xPos + xVel Bullet && yPos Bullet <= yPos Stonepile <= yPos + yVel Bullet
 		 ;For now implement the case where the bullet is straight
 		 MOV BL, BYTE PTR [DI]								;Get the xPos of the bullet
 		 MOV BH, BYTE PTR [SI]								;Get the xPos of the stonepile
+		 MOV AH, BYTE PTR [DI + 2]
+		 CMP BL,BH											; If the bullet exactly hit on the x, check the y
+		 JZ SPCheckYColli
+		 ADD BL,AH											; If the bullet WILL hit after moving, check the Y
 		 CMP BL,BH
 		 JZ SPCheckYColli
-		 INC BH												;This is correct assuming the velocity is either +2 or -2
+		 SUB BL,AH
+
+		 CMP AH,0											; Since each bullet direction requires a different check
+		 JG LTRBulletSP
+		 JL RTLBulletSP
+
+
+		 LTRBulletSP:
+		 ; Check if B.x < obj.x < B.x + xVel
+		 ; if B.x > obj.x, no hit
+		 CMP BL, BH
+		 JG SPGetBullet
+		 ; if obj.x > B.x + xVel, no hit
+		 ADD BL, AH
+		 CMP BL, BH
+		 JL SPGetBullet
+		 ; if B.x < obj.x < B.x + xVel, check yPos for a hit.
+		 JMP SPCheckYColli
+
+		 RTLBulletSP:
+		 ; Check if B.x + xVel < obj.x < B.x
+		 ; if obj.x > B.x, no hit
 		 CMP BL,BH
-		 JNZ SPGetBullet
+		 JL SPGetBullet 
+		 ; if obj.x < B.x + xVel, no hit
+		 ADD BL,AH
+		 CMP BL,BH
+		 JG SPGetBullet
+		 ; if B.x + xVel < obj.x < B.x, check yPos for a hit
+		 JMP SPCheckYColli
+
+
+		;  CMP BL,BH
+		;  JZ SPCheckYColli
+		;  INC BH												;This is correct assuming the velocity is either +2 or -2
+		;  CMP BL,BH
+		;  JNZ SPGetBullet
 
 	SPCheckYColli:
 		 MOV BL, BYTE PTR [DI+1]							;Get the yPos of the bullet
@@ -638,7 +770,7 @@ StonepileCollisions:
 		 JZ ExecuteSPLogic			  						; If not, Check the next extra bullet
 		 ADD SI, BulletDataSize								; Loads the next bullet's data
 		 MOV CL, BYTE PTR [SI]									
-		 CMP CL, '$'										
+		 CMP CL, '~'										
 		 JNZ SPGetExtraBullet
 		 POP SI
 		 RET												;If no extra bullet available, skip making any effect
@@ -679,7 +811,7 @@ ExecuteSPLogic:
 	NextStonepile:
 		 ADD SI, 2
 		 MOV BL, [SI]
-		 CMP BL, '$'										; if we finish checking for all stonepiles
+		 CMP BL, '~'										; if we finish checking for all stonepiles
 		 JZ FinishStonepileColl
 		 JMP SPStartFromBullet1								; stop iterating else, continue with the next stonepile
 
@@ -693,7 +825,6 @@ stopIterate:
 	 LEA SI, PlayerOne
 	 MOV DL, BYTE PTR [SI]									; DL carries the X coordinate (Columns) for P1
 	 MOV DH , BYTE PTR [SI + 1]  							; DH carries the Y coordinate (Rows) for P1
-	 MOV AH , PLAYER_HEIGHT
 	 MOV CL, NumBullets
 	 ADD CL, ExtraNum
 	 MOV CH, 0
@@ -704,14 +835,38 @@ stopIterate:
 ; =================================================================================================
 
 BulletPlayer1Col:
+	 MOV AH , PLAYER_HEIGHT
 	 MOV AL, BYTE PTR [DI + 4] 								; Carries the current bullet's active flag
 	 CMP AL, 1				 								; Checking if the bullet is active
 	 JNZ InactiveBullet1		  							; If not, skip the collision check
 	 MOV BL, BYTE PTR [DI]	  								; Otherwise, load xPos and yPos into BL and BH
 	 MOV BH, BYTE PTR [DI + 1]
- 
-	 CMP BL, 2				  								; Checking if the bullet is near P1
-	 JA NotNearP1 			  								; If the bullet's xPos ≠ 2 (not near P1), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
+	; Bullet velocity offset is 2
+	; Check the bullet's direction
+	; if velocity is +ve (LTR), check if B.x < obj.x < B.x + velx
+	; if velocity is -ve (RTL), check if B.x > obj.x > B.x + velx
+	; if any of the conditions fail, jump to NotNearP1
+
+	CMP BYTE PTR [DI + 2], 0
+	JG NotNearP1											; If the bullet is going to the right, it can't hit P1 ever
+	CMP BL, 2D												; If the bullet hit exactly on the x, check the y
+	JE CheckPlayer1CollisionsY
+	ADD BL, BYTE PTR [DI+2]									; If the bull WILL hit after moving, check the Y
+	CMP BL, 2D
+	JE CheckPlayer1CollisionsY
+	SUB BL, BYTE PTR [DI+2]
+
+	; If B.x < 2, no hit
+	CMP BL, 2D
+	JL NotNearP1				
+	; If B.x + xVel > 2 , no hit
+	ADD BL, BYTE PTR [DI + 2]
+	CMP BL, 2D
+	JG NotNearP1
+	; Otherwise, check the y position
+	
+
+	;  JA NotNearP1 			  								; If the bullet's xPos ≠ 2 (not near P1), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
 	CheckPlayer1CollisionsY:
 		;Check First Player Row
 		 CMP BH, DH									
@@ -758,21 +913,42 @@ BulletPlayer1Col:
 	 LEA SI, PlayerTwo
 	 MOV DL, BYTE PTR [SI]									; DL carries the X coordinate (Columns) for P2
 	 MOV DH , BYTE PTR [SI + 1]  							; DH carries the Y coordinate (Rows) for P2
-	 MOV AH , PLAYER_HEIGHT
 	 MOV CL, NumBullets
 	 ADD CL, ExtraNum
 	 MOV CH, 0
 	 LEA DI, P1Bullet1										; Starting with bullet 1
 
 BulletPlayer2Col:
+	 MOV AH , PLAYER_HEIGHT
 	 MOV AL, BYTE PTR [DI + 4] 								; Carries the current bullet's active flag
 	 CMP AL, 1				  								; Checking if the bullet is active
-	 JNZ InactiveBullet2		  								; If not, skip the collision check
+	 JNZ InactiveBullet2		  							; If not, skip the collision check
 	 MOV BL, BYTE PTR [DI]	  								; Otherwise, load xPos and yPos into BL and BH
 	 MOV BH, BYTE PTR [DI + 1]
-	 CMP BL, 77				  								; Checking if the bullet is near P2
-	 JB NotNearP2			  								; If the bullet's xPos ≠ 77 (not near P2), check the next bullet, EDIT THIS IF WE NEED TO CHECK PAST THE FACE
-	
+	; Bullet velocity offset is 2
+	; Check the bullet's direction
+	; if velocity is +ve (LTR), check if B.x < obj.x < B.x + velx
+	; if velocity is -ve (RTL), check if B.x > obj.x > B.x + velx
+	; if any of the conditions fail, jump to NotNearP2
+
+	CMP BYTE PTR [DI + 2], 0
+	JL NotNearP2											; If the bullet is going to the left, it can't hit P2 ever
+	CMP BL, 77D
+	JE CheckPlayer2CollisionsY
+	ADD BL, BYTE PTR [DI +2 ]
+	CMP BL, 77D
+	JE CheckPlayer2CollisionsY
+
+	; If B.x > 77, no hit
+	CMP BL, 77D
+	JG NotNearP2			
+	; If B.x + xVel < 77 , no hit
+	ADD BL, BYTE PTR [DI + 2]
+	CMP BL, 77D
+	JL NotNearP2
+	; Otherwise, check the y position
+
+	 
 	CheckPlayer2CollisionsY:
 		 CMP BH,DH											; Comparing Y coordinates
 		 JNZ NoP2Hit 										; If the y coordinate doesn't match, bail
@@ -838,7 +1014,7 @@ MoveBullets:
 ;								--------------Boundaries Checks----------------								;
 	 CMP DL, 2												
 	 JL DeactivateBullet										
-	 CMP DL, 78
+	 CMP DL, 77
 	 JG DeactivateBullet
  
  	 CMP DH, 1
@@ -1653,11 +1829,11 @@ DiffMenu:
 ; Change bullet speed depending on the chosen difficulty
 
 ChoseEasy:	
-	MOV ChosenDiff, 1
+	MOV ChosenDiff, 3
 	MOV MaxBullets, 5
 	JMP DiffChosen 			
 ChoseMedium:
-	MOV ChosenDiff, 2
+	MOV ChosenDiff, 6
 	MOV MaxBullets, 3
 	JMP DiffChosen
 
