@@ -31,7 +31,8 @@ ENDM
 ;
 ;
 ;
-; If you're using the VSCode extension exclusively, you can find its DOSBox config file at : C:\Users\YOUR USERNAME\.vscode\extensions\xsro.masm-tasm-0.7.0\resources\VSC-ExtUse.conf (Yes, it does use its own seperate DOSBox)
+; If you're using the VSCode extension exclusively, you can find its DOSBox config file at :
+; C:\Users\YOUR USERNAME\.vscode\extensions\xsro.masm-tasm-0.7.0\resources\VSC-ExtUse.conf (Yes, it does use its own seperate DOSBox)
 ; Add the following lines:
 ;         [serial]
 ;         serial1=directserial realport:COM1
@@ -177,7 +178,7 @@ Send PROC
 			MOV         BL,BYTE PTR [SI]  	; Loads the local cursor's x
 	        MOV         BH,BYTE PTR [SI+1]	; Same but for the y
 	        MoveCursor  BL,BH             	; Moves the cursor to the top half
-			DisplayChar 20H					;displays space
+			DisplayChar ' '					;displays space
 			MOV         BL,BYTE PTR [SI]  	; Loads the local cursor's x
 	        MOV         BH,BYTE PTR [SI+1]	; Same but for the y
 	        MoveCursor  BL,BH             	; Moves the cursor to the top half
