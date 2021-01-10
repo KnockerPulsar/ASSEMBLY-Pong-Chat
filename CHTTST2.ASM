@@ -66,6 +66,11 @@ ENDM
 	OtherCursorPos DB 0,13	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
 	Recieved       DB 0   	; The recieved character
 	Sent           DB 0     ; The sent character
+	RecieveBuffer  DB 30,30 dup('$') ;First byte is the size, second byte is the number of characters from the keyboard
+	SendBuffer     DB 30,30 dup('$') ;First byte is the size ///NOT USED
+	SendIndex	   DB 1					;///NOT USED
+    ReceivedSize   DB 0
+
 .CODE
 MAIN PROC FAR
 	        MOV         AX,@DATA
@@ -121,7 +126,7 @@ INIT PROC
 
 	; Might be useful to convert to a macro/proc later as it'll be used to scroll
 	; Colors the top half
-	        mov         ah,6              	; function 6 (How descriptive, Eng.Sandra...)
+	        mov         ah,6              	; function 6
 	        mov         al,0              	; How many lines to scroll
 	        mov         bh,UPPER_COLOR    	; Black FG and white BG
 	        mov         ch,0              	; upper left Y
@@ -150,30 +155,73 @@ Send PROC
 	        mov         dx , 3FDH         	; Line Status Register address
 	AGAIN:  In          al , dx           	; Read Line Status
 	        test        al , 00100000b    	; Bit 6: transmit shift register empty
-	        JZ          Skip              	; Not empty, skip this cycle
-            
+			JNZ			NotSkip
+	        JMP          Skip              	; Not empty, skip this cycle
+    NotSkip:      
 	; https://vitaly_filatov.tripod.com/ng/asm/asm_027.2.html
 	; Check if a key is pressed
 	        MOV         AH,1
 	        INT         16H               	; Sets the ZF = 0 if a key is available, ZF = 1 if not
-	        JZ          NoInput           	; Skips sending any character if ZF = 1 to avoid repeating characters
-            
+			JNZ			FoundKey
+	        JMP         NoInput           	; Skips sending any character if ZF = 1 to avoid repeating characters
+         FoundKey:   
 	; If it was, get it, display it then send it
 	        MOV         AH,0
 	        INT         16H
 	        MOV         Sent,AL           	; Stores it, probably not needed though since AL is not used later
+			
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;TO DO: Check that the backspace doesn't go beyond the end of the screen;;;;;;;;;;;;;;;;;;;
+			CMP AL, 08H						;Checks if backspace is pressed
+			JNZ NOTBackspace
+			DEC         BYTE PTR [SI]     	; Moves the x coordinate by 1 to the left to overwrite
+			MOV         BL,BYTE PTR [SI]  	; Loads the local cursor's x
+	        MOV         BH,BYTE PTR [SI+1]	; Same but for the y
+	        MoveCursor  BL,BH             	; Moves the cursor to the top half
+			DisplayChar 20H					;displays space
+			MOV         BL,BYTE PTR [SI]  	; Loads the local cursor's x
+	        MOV         BH,BYTE PTR [SI+1]	; Same but for the y
+	        MoveCursor  BL,BH             	; Moves the cursor to the top half
+            MOV         AL, 08H	            ;Send a backspace key to declare the deletion of the last char sent
+            mov         dx , 3F8H         	; Transmit data register address
+	        out         dx , al
+			JMP Skip
 
+NOTBackspace:
+			CMP AL, 0DH						;Checks if enter is pressed
+			JNZ KeepWriting
+			MOV 		AH,0
+			MOV			AL, [SI]
+			MOV			BL, 80D
+			DIV			BL
+			MOV			AL,80D
+			SUB			AL,AH
+			ADD			BYTE PTR [SI] ,AL
+			MOV         BL,BYTE PTR [SI]  	; Loads the local cursor's x
+	        MOV         BH,BYTE PTR [SI+1]	; Same but for the y
+	        MoveCursor  BL,BH             	; Moves the cursor to the top half
+            ;;;;;;;;;;;;;;;;;;;;;;;;;To DO: Add the scrolling logic here ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+			JMP CompletedSending
+
+KeepWriting:
 	; Display the character
 	        MOV         BL,BYTE PTR [SI]  	; Loads the local cursor's x
 	        MOV         BH,BYTE PTR [SI+1]	; Same but for the y
 	        MoveCursor  BL,BH             	; Moves the cursor to the top half
-	        DisplayChar Sent
+	        DisplayChar AL
 	        INC         BYTE PTR [SI]     	; Moves the x coordinate by 1 to the right to avoid overwriting
 
-	; If the transmit data register is empty, sends the character to it
-	        mov         dx , 3F8H         	; Transmit data register address
-	        mov         al, Sent
+SendDataToOtherUser:
+            INC         DI
+            MOV         AL, Sent
+            mov         dx , 3F8H         	; Transmit data register address
 	        out         dx , al
+            JMP         Skip
+
+CompletedSending:
+            MOV         AL, 0DH	                     ;Send an enter key to declare the end of the text
+            mov         dx , 3F8H         	; Transmit data register address
+	        out         dx , al
+
 	NoInput:
 	Skip:   
 	        RET
@@ -186,18 +234,83 @@ Recieve PROC
 	        mov         dx , 3FDH         	; Line Status Register address
 	CHK:    in          al , dx
 	        test        al , 1            	; Bit 1: data ready
-	        JZ          ABORT             	; Not Ready, skip this cycle
-	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	        JNZ         ReceivedSomeKey
+            JMP         ABORT             	; Not Ready, skip this cycle
+
+ReceivedSomeKey:
+	; If Ready read the VALUE in Receive data register
 	        mov         dx , 03F8H        	; Data recieving register address
 	        in          al , dx
 	        mov         Recieved , al     	; Stores the recieved character
 
-	; Displays the recieved character
-	        MOV         CL,BYTE PTR [DI]  	; x
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;TO DO: IN case of backspace Decrement the ReceivedSize and check that doesn't go below 0 and set the deleted charcter with $;;;;;;;;
+            CMP AL, 0DH						;Checks if enter is sent
+			JZ  FinishedReceiving
+
+            CMP AL, 08H						;Checks if backspace is pressed
+            JNZ StoreReceived
+            MOV         BL, ReceivedSize    ;Check if the receivedbuffer is empty
+            CMP         BL, 0D
+            JNZ         DeleteLastChar
+            JMP         ABORT
+    DeleteLastChar:
+            PUSH        SI
+            LEA         SI, RecieveBuffer
+            MOV         BH,0
+            MOV         BL, ReceivedSize
+            MOV         BYTE PTR [SI+BX],'$'
+            DEC         ReceivedSize
+            POP         SI
+			JMP ABORT
+
+StoreReceived:
+	; Store the received character
+            PUSH        SI
+            LEA         SI, RecieveBuffer
+            MOV         BH,0
+            INC         ReceivedSize
+            MOV         BL, ReceivedSize
+            MOV         BYTE PTR [SI+BX],AL
+            POP         SI
+            JMP         ABORT
+
+    FinishedReceiving:
+;Print the whole string & Empty the ReceivedBuffer and fill it with $$$$$$$$$$$$ and reset the ReceivedSize
+            ;DisplayMessage  RecieveBuffer+1
+            PUSH        SI
+            LEA         SI, RecieveBuffer
+            MOV         BL,0
+    PrintSent:
+            MOV         BH,0
+            INC         BL
+            CMP         BL, ReceivedSize
+            JA          FinishPrintSent
+            MOV         AL,BYTE PTR [SI+BX]
+
+            MOV         CL,BYTE PTR [DI]  	; x
 	        MOV         CH,BYTE PTR [DI+1]	; y
 	        MoveCursor  CL,CH
-	        DisplayChar Recieved
+	        DisplayChar AL
 	        INC         BYTE PTR [DI]     	; Moves the away cursor 1 character to the right
+            MOV         BYTE PTR [SI+BX],'$'
+            JMP         PrintSent
+FinishPrintSent:
+            POP         SI
+            MOV         BL,ReceivedSize
+            MOV         BL, 0
+            MOV         ReceivedSize,BL
+            MOV 		AH,0
+			MOV			AL, [DI]
+			MOV			CL, 80D
+			DIV			CL
+			MOV			AL,80D
+			SUB			AL,AH
+			ADD			BYTE PTR [DI] ,AL
+			MOV         CL,BYTE PTR [DI]  	; Loads the local cursor's x
+	        MOV         CH,BYTE PTR [DI+1]	; Same but for the y
+	        MoveCursor  CL,CH             	; Moves the cursor to the top half
+;;;;;;;;;;;;;;;;;;;;;;;;;To DO: Add the scrolling logic here ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 	ABORT:  
 	        RET
 Recieve ENDP
