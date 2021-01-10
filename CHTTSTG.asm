@@ -32,7 +32,6 @@ ENDM
 ;    4- Add scrolling up and down with the arrow keys (check Lab 2 for more info)
 ;    5- Display the names of each side
 ;    6- Add the footer
-;    7- https://music.youtube.com/watch?v=QkFJau6aK3w&list=OLAK5uy_kqBgrX1-hKk1i0zb3MWS6R4tu5SmRjYdk (not a rickroll I swear)
 
 ; How to use
 ; ============================================================================================================
@@ -110,42 +109,32 @@ MAIN ENDP
 
 INIT PROC
 
-	; This was also copied but modified a bit
+	; Clear screen
+	                     MOV           AH,0
+	                     INT           10H
 
 	; Might be useful to convert to a macro/proc later as it'll be used to scroll
 	; Colors the top half
-	;  mov         ah,6                	; function 6 (How descriptive, Eng.Sandra...)
-	;  mov         al,0                	; How many lines to scroll
-	;  mov         bh,UPPER_COLOR      	; Black FG and white BG
-	;  mov         ch,0                	; upper left Y
-	;  mov         cl,0                	; upper left X
-	;  mov         dh,24               	; lower right Y
-	;  mov         dl,79               	; lower right X
-	;  int         10h
+	                     mov           ah,6                	; function 6
+	                     mov           al,0                	; How many lines to scroll
+	                     mov           bh,UPPER_COLOR      	; Black FG and white BG
+	                     mov           ch,0                	; upper left Y
+	                     mov           cl,0                	; upper left X
+	                     mov           dh,11               	; lower right Y
+	                     mov           dl,79               	; lower right X
+	                     int           10h
 
-	; ; Colors the bottom half
-	;                      mov         ah,6
-	;                      mov         al,0
-	;                      mov         bh,LOWER_COLOR      	; White BG and black FG
-	;                      mov         ch,13
-	;                      mov         cl,0
-	;                      mov         dh,24
-	;                      mov         dl,79
-	;                      int         10h
+	; Colors the bottom half
+	                     mov           ah,6
+	                     mov           al,0
+	                     mov           bh,LOWER_COLOR      	; White BG and black FG
+	                     mov           ch,12
+	                     mov           cl,0
+	                     mov           dh,24
+	                     mov           dl,79
+	                     int           10h
 
-	                     MOV           AH,0
-	                     MOV           AL, 03
-	                     INT           10H
-
-	                     LEA           SI,OtherCursorPos
-	                     MOV           DL,BYTE PTR [SI]
-	                     MOV           DH,BYTE PTR [SI+1]
-	                     DEC           DH
-	                     MoveCursor    DL,DH
-	                     MOV           CX , 80
-	Seperate:            
-	                     DisplayChar   '-'
-	                     Loop          Seperate
+	                     RET
 
 
 	; The below block was copied straight out of the lab
@@ -200,8 +189,6 @@ Send PROC
 	                     JE            SendBufferLBL
 
 	; Put the character in the send buffer AND DISPLAY IT
-	; TODO: CHECK IF X > 80, INC Y IF SO
-	; TODO: CHECK IF THE INDEX IS LARGER THAN THE BUFFER
 	                     CMP           BYTE PTR [SI+1],0FEH	; Check if the next character is 0FEH (BUFFER END)
 	                     JE            NoInput             	; DON'T ADD ANY MORE IF SO
 	                     MOV           BYTE PTR [SI], AL   	; MOVE THE CHAR IN THE BUFFER
@@ -214,27 +201,29 @@ Send PROC
 	                     JMP           CharWritten
 
 	Backspace:           
-	                     CMP           localCharIndex,1		; CAN'T BACKSPACE PAST THE FIRST CHARACTER
+	                     CMP           localCharIndex,1    	; CAN'T BACKSPACE PAST THE FIRST CHARACTER
 	                     JL            NoInput
 	                     DEC           BYTE PTR [DI]       	; DEC X
 	                     MOV           CL , BYTE PTR [DI]  	; Loads the local cursor's x
 	                     MOV           CH , BYTE PTR [DI+1]	; Same but for the y
 	                     MoveCursor    CL , CH
 	                     DisplayChar   ' '                 	; HIDES THE PREVIOUS CHAR
-
-	;  DEC           CL
 	                     MoveCursor    CL , CH
 	                     DEC           SI
 	                     MOV           BYTE PTR [SI], '$'
 	                     DEC           localCharIndex
 	                     JMP           CharWritten
 	SendBufferLBL:       
-	                     MOV           localCharIndex, 0
-	                     MOV           BYTE PTR [DI], 0
+	                     MOV           localCharIndex , 0
+	                     MOV           BYTE PTR [DI] , 0
 	                     INC           BYTE PTR [DI+1]     	; MOVE THE CURSOR TO THE LINE BELOW
 	                     MOV           CL, BYTE PTR [DI]
 	                     MOV           CH, BYTE PTR [DI+1]
 	                     MoveCursor    CL,CH
+	                     CMP           BYTE PTR [DI+1],11D
+	                     JL            DontScrollMasterUp
+	                     CALL          ScrollMasterUp
+	DontScrollMasterUp:  
 	                     CALL          SENDBUFFERPROC
 	
 	NoInput:             
@@ -261,18 +250,6 @@ Recieve PROC
 
 	                     LEA           SI , ReceiveBuffer
 						 
-	; ; Send FFH to tell the other side that something's coming
-	; SENDFLAG_RECEIVE:
-	;                      mov           dx , 3FDH           	; Line Status Register address
-	; AGAINFLAG_RECEIVE:   In            al , dx             	; Read Line Status
-	;                      test          al , 00100000b      	; Bit 6: transmit shift register empty
-	;                      JZ            AGAINFLAG_RECEIVE   	; Not empty, skip this cycle
-
-	; ; If the transmit data register is empty, sends the character to it
-	;                      mov           dx , 3F8H           	; Transmit data register address
-	;                      mov           al , 0FFH
-	;                      out           dx , al
-
 	
 	RECEIVECHAR:         
 	                     mov           dx , 3FDH           	; Line Status Register address
@@ -290,6 +267,7 @@ Recieve PROC
 	                     JMP           RECEIVECHAR
 	DISPLAYRECEIVED:     
 	                     LEA           SI, OtherCursorPos
+	                     MOV           BYTE PTR [SI], 0
 	                     MOV           CL, BYTE PTR [SI]
 	                     MOV           CH, BYTE PTR [SI+1]
 	                     MoveCursor    CL,CH
@@ -298,6 +276,10 @@ Recieve PROC
 
 	                     MOV           CX, 30
 	                     LEA           DI,ReceiveBuffer
+	                     CMP           BYTE PTR [SI+1], 24
+	                     JL            DontScrollSlaveUp
+	                     CALL          ScrollSlaveUp
+	DontScrollSlaveUp:   
 	CLEAR_RECEIVE_BUFFER:
 	                     MOV           BYTE PTR [DI], '$'
 	                     INC           DI
@@ -338,7 +320,6 @@ SendMyName PROC
 	; Sending out my own name
 	; This can send up to 16 characters or until it encounters a '$'
 	; Check that Transmitter Holding Register is Empty
-
 	; Load how many characters are in the name
 	                     LEA           DI, MyName
 	; Points DI at the first character
@@ -443,18 +424,6 @@ SENDBUFFERPROC PROC
 	                     mov           al , 0FFH
 	                     out           dx , al
 
-	; ; CHECKING FOR REPLY
-	;                      mov           dx , 3FDH           	; Line Status Register address
-	; CHKSEND:             in            al , dx
-	;                      test          al , 1              	; Bit 1: data ready
-	;                      JZ            CHKSEND             	; Not Ready, skip this cycle
-	; ; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
-	;                      mov           dx , 03F8H          	; Data recieving register address
-	;                      in            al , dx
-	;                      CMP           AL, 0FFH
-	;                      JNE           CHKSEND
-
-
 	SENDCHAR:            
 	; https://stanislavs.org/helppc/int_14.html
 	; Check that Transmitter Holding Register is Empty
@@ -478,4 +447,55 @@ SENDBUFFERPROC PROC
 	                     RET
 
 SENDBUFFERPROC ENDP
+
+	; Master is the upper half, from (0,0) to (79,11)
+ScrollMasterUp PROC
+	; AL = lines to scroll (0 = clear, CH, CL, DH, DL are used),
+	; BH = Background Color and Foreground color. BH = 43h, means that background color is red and foreground color is cyan. Refer the BIOS color attributes
+	; CH = Upper row number, CL = Left column number, DH = Lower row number, DL = Right column number
+	                     MOV           AL , 1
+	                     MOV           BH , UPPER_COLOR
+	                     MOV           CH , 0
+	                     MOV           CL , 0
+	                     MOV           DH , 11D
+	                     MOV           DL , 79D
+	                     MOV           AH , 6D
+	                     INT           10H
+
+	                     LEA           SI, MyCursorPos
+	                     SUB           BYTE PTR [SI+1],1
+
+	                     MoveCursor    0,0
+	                     DisplayBuffer MyName
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+
+	                     RET
+
+ScrollMasterUp ENDP
+
+	; Slave is the lower half, from (0,11) to (79,24)
+ScrollSlaveUp PROC
+	                     MOV           AL , 1
+	                     MOV           BH , LOWER_COLOR
+	                     MOV           CH , 12D
+	                     MOV           CL , 0
+	                     MOV           DH , 24D
+	                     MOV           DL , 79D
+	                     MOV           AH , 6D
+	                     INT           10H
+
+	                     LEA           SI, OtherCursorPos
+	                     SUB           BYTE PTR [SI+1],1
+
+	                     MoveCursor    0,12
+	                     DisplayString OtherName
+
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+
+	                     RET
+ScrollSlaveUp ENDP
 END MAIN
