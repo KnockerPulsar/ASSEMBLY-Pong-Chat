@@ -214,25 +214,25 @@ ENDM
 	Recieve		   DB 0
 	RECI		   DB 0
 	SENI		   DB 0
-	Master		   DB 0
+	Master		   DB 1
 
 	; Chatting Variables
 	; ============================================================================================
 	; 	
-	UPPER_COLOR    DB 00FH                     	; 0 For black BG and F for white FG (text)
-	LOWER_COLOR    DB 0F0H                     	; Reverse the above
-	MyCursorPos    DB 0,0                      	; x,y for the current side's cursor (Local messages will be displayed at the top)
-	OtherCursorPos DB 0,12                     	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
-	Recieved       DB 0                        	; The recieved character
-	Sent           DB 0                        	; The sent character
+	;UPPER_COLOR    DB 00FH                     	; 0 For black BG and F for white FG (text)
+	;LOWER_COLOR    DB 0F0H                     	; Reverse the above
+	;MyCursorPos    DB 0,0                      	; x,y for the current side's cursor (Local messages will be displayed at the top)
+	;OtherCursorPos DB 0,12                     	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
+	;Recieved       DB 0                        	; The recieved character
+	;Sent           DB 0                        	; The sent character
 	MyName         DB 16,3,"SLAVE", 12 DUP('$')
 	OtherName      DB 17 DUP('$')
-	Master         DB 0
-	SendBuffer     DB 80 DUP('$'),0FEH
-	localCharIndex DB 0
+	;Master         DB 0
+	;SendBuffer     DB 80 DUP('$'),0FEH
+	;localCharIndex DB 0
 	ReadyToSend	   DB 0							;1 means that enter has been clicked and the stored text should be sent
-	ReceiveBuffer  DB 80 DUP('$'),0FEH
-	otherCharIndex DB 0
+	;ReceiveBuffer  DB 80 DUP('$'),0FEH
+	;otherCharIndex DB 0
 	ReadtToSendS   DB 0							;1 means that enter has been clicked and the stored text should be sent
 	InvitationSender DB 0						; to know who is the host of the game so we can draw players in their right positions
 
