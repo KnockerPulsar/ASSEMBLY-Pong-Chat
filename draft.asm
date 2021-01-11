@@ -204,7 +204,7 @@ ENDM
 	;  DynamicBlock1 			DB 1
 	;  DynamicBlock2 			DB -1
     sentflag       DB 0
-    recieveflag    DB 0,'$'
+    recieveflag    DB 0
 	Recieved       DB 0   	; The recieved character
 	Sent           DB 0     ; The sent character
 	userinput		DB 0
@@ -572,7 +572,7 @@ here:			jmp checkSending					; you refuesed, check if you wanna send invitation
 			MOV recieveflag, 0
 			MOV sentflag, 0
 			CALL WaitingMasterStartGame
-			jmp GameLoop
+			jmp reset
 			;jmp NotExit							; go play for now
 		refuse2:
 			CMP Sent, "F"
@@ -663,10 +663,12 @@ ending2:
 		 	MOV InvitationSender, 1
 			CALL DifficultySelect
 			CALL LevelSelect
+			CALL SendToSlave
+reset:
 		 	CALL ResetRound            ; Reset the player positions
 		 	MOV PlayerOneScore, 30H    ; Reset both players' scores
 		 	MOV PlayerTwoScore, 30H
-			 CALL SendToSlave
+			
 		 	JMP GameLoop 
 
 
@@ -776,8 +778,7 @@ waitS:
 	jnz waitS
 	CMP Recieved, 'S'
 	jnz waitS
-
-DisplayMessage	Info9
+Mov recieveflag, 0
 ; if you recieved 'S'
 ; send 'O'
 MOV Sent, 'O'
@@ -786,18 +787,14 @@ sendO:
 	CMP sentflag, 1
 	jnz sendO
 ;and go recieve options from master
+CALL WaitingMasterStartGame2
 
 ;then exit this proc and go to gameloop
 RET
 WaitingMasterStartGame ENDP
 
 
-
 SendToSlave PROC
-
-DisplayMessage Info2
-MOV AH, 0
-INT 16
 
 ;start sending 'S'
 MOV Sent, 'S'
@@ -806,7 +803,6 @@ sendS:
 	CMP sentflag, 1
 	jnz sendS
 ;wait recieve 'O'
-DisplayMessage Info4
 
 waitO:
 	CALL RecieveI
@@ -814,9 +810,164 @@ waitO:
 	jnz waitO
 	CMP Recieved, 'O'
 	jnz waitO
+
+CALL SendToSlave2
 ; then send the chosen options and exit this proc and go to gameloop
 RET
 SendToSlave ENDP
+
+
+
+WaitingMasterStartGame2 PROC
+
+;and go recieve options from master
+
+				LEA SI, ChosenDiff
+
+RecieveOptions:
+				CALL RecieveI
+				LEA DI, recieveflag
+				CMP BYTE PTR [DI], 1
+				JNZ RecieveOptions
+				MOV BYTE PTR [DI], 0
+				CMP Recieved, 0FFH
+				JZ EndRecOpt
+				MOV AL, Recieved
+				MOV AH, AL
+				ADD AH, 49
+				DisplayChar	AH
+				MOV BYTE PTR [SI], AL
+				INC SI
+				JMP RecieveOptions
+
+			EndRecOpt:
+
+
+
+
+
+
+; 	; Check that data recieve register is Ready
+; 	                     mov           dx , 3FDH           	; Line Status Register address
+; 	CHKRFT:              in            al , dx
+; 	                     test          al , 1              	; Bit 1: data ready
+; 	                     JZ            CHKRFT	         	; Not Ready, skip this cycle
+; 	; If Ready read the VALUE in Receive data register
+; 	                     mov           dx , 03F8H          	; Data recieving register address
+; 	                     in            al , dx
+
+; 	; CHECK FOR THE STOP BIT FLAG
+; 	                     CMP           AL , 0FFH
+; 	                     JE            StartRFT
+; 						 JMP			ABORTRFT
+; StartRFT:	
+; 	                     mov           dx , 3FDH           	; Line Status Register address
+; 	CHK_RTFT1:      in            al , dx
+; 	                     test          al , 1              	; Bit 1: data ready
+; 	                     JZ            CHK_RTFT1        	; Not Ready, skip this cycle
+						 
+; 	                     mov           dx , 03F8H          	; Data recieving register address
+; 	                     in            al , dx
+; 	                     MOV           ChosenDiff , AL
+
+; 					     mov           dx , 3FDH           	; Line Status Register address
+; 	CHK_RTFT2:      in            al , dx
+; 	                     test          al , 1              	; Bit 1: data ready
+; 	                     JZ            CHK_RTFT2         	; Not Ready, skip this cycle
+						 
+; 	                     mov           dx , 03F8H          	; Data recieving register address
+; 	                     in            al , dx
+; 	                     MOV           MaxBullets , AL
+
+
+;  	                     mov           dx , 3FDH           	; Line Status Register address
+; 	CHK_RFT3:      in            al , dx
+; 	                     test          al , 1              	; Bit 1: data ready
+; 	                     JZ            CHK_RFT3         	; Not Ready, skip this cycle
+						 
+; 	                     mov           dx , 03F8H          	; Data recieving register address
+; 	                     in            al , dx
+; 	                     MOV           ChosenDiff , AL
+
+	ABORTRFT:               
+;then exit this proc and go to gameloop
+RET
+WaitingMasterStartGame2 ENDP
+
+
+
+SendToSlave2 PROC
+
+			MOV sentflag, 0
+			LEA SI, ChosenDiff
+			MOV CL, 3
+			MOV CH, 00H
+			sendOptions:
+				MOV AL, BYTE PTR [SI]
+				MOV Sent, AL
+				CALL SendI
+				;INC SI
+				CMP sentflag, 1
+				JNZ sendOptions
+				INC SI
+				MOV sentflag, 0
+				DEC CL
+				CMP CL, 0
+				JNZ sendOptions
+endSending:
+			MOV Sent, 0FFH
+			CALL SendI
+			CMP sentflag, 1
+			jnz endSending
+
+	; 					 LEA           SI , FromMasterGameBuffer ;First bit contains the whole length
+	; 					;INC SI
+	; 					 MOV			AL, ChosenDiff
+	; 					 MOV			BYTE PTR [SI],AL
+	; 					 INC			SI
+
+	; 					 MOV			AL, MaxBullets
+	; 					 MOV			BYTE PTR [SI],AL
+	; 					 INC			SI
+
+	; 					 MOV			AL, CurrLevel
+	; 					 MOV			BYTE PTR [SI],AL
+	; 					 INC			SI
+
+	; ; Send FFH to tell the other side that something's coming          
+	;                      mov           dx , 3FDH                          	; Line Status Register address
+	; AGAINFLAGSFT:           In            al , dx                            	; Read Line Status
+	;                      test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	;                      JZ            AGAINFLAGSFT                          	; Not empty, skip this cycle
+
+	; ; If the transmit data register is empty, sends the character to it
+	;                      mov           dx , 3F8H                          	; Transmit data register address
+	;                      mov           al , 0FFH
+	;                      out           dx , al
+	; 					 LEA           SI , FromMasterGameBuffer
+	; SENDCHARSFT:            
+	; ; https://stanislavs.org/helppc/int_14.html
+	; ; Check that Transmitter Holding Register is Empty
+	;                      mov           dx , 3FDH                          	; Line Status Register address
+	; AGAINSFT:               In            al , dx                            	; Read Line Status
+	;                      test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	;                      JZ            AGAINSFT                              	; Not empty, skip this cycle
+
+
+	; ; If the transmit data register is empty, sends the character to it
+	;                      mov           dx , 3F8H                          	; Transmit data register address
+	;                      mov           al , BYTE PTR [SI]
+	;                      out           dx , al
+	;                      MOV           AH, BYTE PTR [SI]
+	;                      MOV           BYTE PTR [SI], '$'                 	; CLEARING THE BUFFER FOR THE NEXT MASSEGES
+	;                      INC           SI
+	;                      CMP           AH , '$'
+	;                      JNE           SENDCHARSFT    
+
+; then send the chosen options and exit this proc and go to gameloop
+RET
+SendToSlave2 ENDP
+
 
 
 Inputuserforchat PROC
