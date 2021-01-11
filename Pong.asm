@@ -234,6 +234,7 @@ ENDM
 	ReceiveBuffer  DB 80 DUP('$'),0FEH
 	otherCharIndex DB 0
 	ReadtToSendS   DB 0							;1 means that enter has been clicked and the stored text should be sent
+	InvitationSender DB 0						; to know who is the host of the game so we can draw players in their right positions
 
 	; Serial Communication Variables
 	; ============================================================================================
@@ -463,6 +464,7 @@ MAIN PROC FAR
 		 	CALL ResetRound            ; Reset the player positions
 		 	MOV PlayerOneScore, 30H    ; Reset both players' scores
 		 	MOV PlayerTwoScore, 30H
+			CALL SendToSlave
 		 	JMP GameLoop 
 
 		 NotF2:
@@ -567,6 +569,28 @@ MAIN PROC FAR
 		 INT            21H
 
 MAIN ENDP
+
+
+WaitingMasterStartGame PROC
+
+; keep check for recieving till you recieved 'S'
+; if you recieved 'S'
+; send 'O'
+
+;and go recieve options from master
+;then exit this proc and go to gameloop
+
+WaitingMasterStartGame ENDP
+
+
+
+SendToSlave PROC
+
+;start sending 'S'
+;wait recieve 'O'
+; then send the chosen options and exit this proc and go to gameloop
+
+SendToSlave ENDP
 
 CactusColls PROC
 ; =================================================================================================

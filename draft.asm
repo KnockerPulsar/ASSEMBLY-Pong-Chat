@@ -166,8 +166,8 @@ ENDM
 	 Info5          		DB 13,10,'- You refused chat invitaion from ','$'
 	 Info6          		DB 13,10,'- You refused game invitaion from ','$'
 	 Info7          		DB 13,10,'- You should chat','$'
-	 Info8					DB ", to accept press F2", "$"
-	 Info9					DB ", to accept press F1", "$"
+	 Info8					DB ", to accept press F2" , '$'
+	 Info9					DB ", to accept press F1" , '$'
 	 userName      			DB 16,?, 16 DUP('$')
 	 userNameScore 			DB "'s Score : ", '$'
 	 userName2     			DB 16,?, 16 DUP('$')
@@ -203,10 +203,11 @@ ENDM
 	;  DynamicBlock1 			DB 1
 	;  DynamicBlock2 			DB -1
     sentflag       DB 0
-    recieveflag    DB 0
+    recieveflag    DB 0,'$'
 	Recieved       DB 0   	; The recieved character
 	Sent           DB 0     ; The sent character
 	userinput		DB 0
+	InvitationSender DB 0
 	; Difficulty & Levels
 	; ============================================================================================= 
 	; Speed multipliers
@@ -349,9 +350,10 @@ Usernames:
 				MOV AL, BYTE PTR [SI]
 				MOV Sent, AL
 				CALL SendI
-				INC SI
+				;INC SI
 				CMP sentflag, 1
 				JNZ UserN1
+				INC SI
 				MOV sentflag, 0
 				DEC CL
 				CMP CL, 0
@@ -532,7 +534,11 @@ here:			jmp checkSending					; you refuesed, check if you wanna send invitation
 			DisplayMessage Info8
 			CMP Sent, "R"						; check if you accept
 			jnz refuse2
-			jmp NotExit							; go play for now
+			MOV recieveflag, 0
+			MOV sentflag, 0
+			CALL WaitingMasterStartGame
+			jmp GameLoop
+			;jmp NotExit							; go play for now
 		refuse2:
 			CMP Sent, "F"
 			jz checkSending
@@ -619,11 +625,13 @@ ending2:
 	;------------------------------ Prepare for Game Module --------------------------------------;
 
 		 NotExit:
+		 	MOV InvitationSender, 1
 			CALL DifficultySelect
 			CALL LevelSelect
 		 	CALL ResetRound            ; Reset the player positions
 		 	MOV PlayerOneScore, 30H    ; Reset both players' scores
 		 	MOV PlayerTwoScore, 30H
+			 CALL SendToSlave
 		 	JMP GameLoop 
 
 
@@ -722,6 +730,59 @@ ending2:
 		 INT            21H
 
 MAIN ENDP
+
+WaitingMasterStartGame PROC
+
+; keep check for recieving till you recieved 'S'
+
+waitS:
+	CALL RecieveI
+	CMP recieveflag, 1
+	jnz waitS
+	CMP Recieved, 'S'
+	jnz waitS
+
+DisplayMessage	Info9
+; if you recieved 'S'
+; send 'O'
+MOV Sent, 'O'
+sendO:
+	CALL SendI
+	CMP sentflag, 1
+	jnz sendO
+;and go recieve options from master
+
+;then exit this proc and go to gameloop
+RET
+WaitingMasterStartGame ENDP
+
+
+
+SendToSlave PROC
+
+DisplayMessage Info2
+MOV AH, 0
+INT 16
+
+;start sending 'S'
+MOV Sent, 'S'
+sendS:
+	CALL SendI
+	CMP sentflag, 1
+	jnz sendS
+;wait recieve 'O'
+DisplayMessage Info4
+
+waitO:
+	CALL RecieveI
+	CMP recieveflag, 1
+	jnz waitO
+	CMP Recieved, 'O'
+	jnz waitO
+; then send the chosen options and exit this proc and go to gameloop
+RET
+SendToSlave ENDP
+
 
 Inputuserforchat PROC
 
@@ -2356,9 +2417,9 @@ DiffMenu:
 	MOV AH,0
 	INT 16H
 
-	CMP AH, 02
+	CMP AL, 49
 	JE ChoseEasy
-	CMP AH, 03
+	CMP AL, 50
 	JE ChoseMedium
 	JMP DiffMenu
 
@@ -2389,9 +2450,11 @@ LevelMenu:
 	MOV AH,0
 	INT 16H
 
-	CMP AH, 02
+	DisplayChar	AL
+
+	CMP AL, 49
 	JE Level1
-	CMP AH, 03
+	CMP AL, 50
 	JE Level2
 	JMP LevelMenu
 
@@ -2443,10 +2506,6 @@ RecieveI PROC
 	        in          al , dx
 			MOV Recieved, AL
 			MOV recieveflag, 1
-
-			
-
-            
 	; Displays the recieved character
 	       
 	        ; MoveCursor  CL,CH
