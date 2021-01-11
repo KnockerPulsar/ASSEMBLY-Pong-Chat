@@ -10,13 +10,17 @@ DisplayChar MACRO Char
 	 POP  AX
 ENDM
 MoveCursor MACRO X,Y 
-
+	 PUSH AX
+	 PUSH DX
+ 
 	 mov  ah,2
 	 mov  dl,X
 	 mov  dh,Y
 	 mov bh, 0
 	 int  10h
-
+ 
+	 POP  DX   
+	 POP  AX
 ENDM
 GoIntoTextMode MACRO
 	 PUSH AX
@@ -27,7 +31,12 @@ GoIntoTextMode MACRO
  
 	 POP  AX
 
-ENDM         
+ENDM      
+DisplayString MACRO String
+	              MOV AH, 9
+	              MOV DX, OFFSET String
+	              INT 21H
+ENDM   
 ClearScreen MACRO    
 	 PUSHALL
 	 MOV AH, 0
@@ -150,7 +159,15 @@ ENDM
 	 Welc          			DB 'Please Enter Your Name:', 13, 10, '$'
 	 Hel 		   			DB 'Please Enter any key to continue','$'
 	 Choices       			DB '* To start chatting press F1', 13,10,13,10, 09,09,09, '* To start game press F2', 13,10,13,10, 09,09,09,'* To end the program press ESC',13,10, '$'
-	 Info          			DB 13,10,'- You send a chat invitaion to ','$'
+	 Info          			DB 13,10,'- You sent a chat invitaion to ','$'
+	 Info2          		DB 13,10,'- You sent a game invitaion to ','$'
+	 Info3          		DB 13,10,'- You recieved a chat invitaion from ','$'
+	 Info4          		DB 13,10,'- You recieved a game invitaion from ','$'
+	 Info5          		DB 13,10,'- You refused chat invitaion from ','$'
+	 Info6          		DB 13,10,'- You refused game invitaion from ','$'
+	 Info7          		DB 13,10,'- You should chat','$'
+	 Info8					DB ", to accept press F2", "$"
+	 Info9					DB ", to accept press F1", "$"
 	 userName      			DB 16,?, 16 DUP('$')
 	 userNameScore 			DB "'s Score : ", '$'
 	 userName2     			DB 16,?, 16 DUP('$')
@@ -169,8 +186,6 @@ ENDM
 	 Difficulties			DB '  * For easy, press 1', 13,10,13,10, 09,09,09, '  * For medium press, 2', '$'
 	 ChooseLevel			DB "Please Choose a level",'$'
 	 Levels					DB '  * For level 1, press 1', 13,10,13,10, 09,09,09, '  * For level 2, press 2', '$'
-	 Sendingchat			DB "You have sent a chat invite to ", '$'
-	 RecChat				DB " Sent you a chat invitation, to accept F1"
 
 	; Other variables
 	; ============================================================================================= 
@@ -187,41 +202,44 @@ ENDM
 			
 	;  DynamicBlock1 			DB 1
 	;  DynamicBlock2 			DB -1
-
+    sentflag       DB 0
+    recieveflag    DB 0
+	Recieved       DB 0   	; The recieved character
+	Sent           DB 0     ; The sent character
+	userinput		DB 0
 	; Difficulty & Levels
 	; ============================================================================================= 
 	; Speed multipliers
 	ChosenDiff 			    DB ?
 	MaxBullets			    DB ?
 	CurrLevel			 	DB ?
+
 	; =============================================================================================
 	; Chat variables
 	UPPER_COLOR    DB 00FH	; 0 For black BG and F for white FG (text)
 	LOWER_COLOR    DB 0F0H	; Reverse the above
 	MyCursorPos    DB 0,0 	; x,y for the current side's cursor (Local messages will be displayed at the top)
 	OtherCursorPos DB 0,13	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
-	Recieved       DB 0   	; The recieved character
-	Sent           DB 0     ; The sent character
 	SendIndex	   DB 1					;///NOT USED
     ReceivedSize   DB 0
-    sentflag       DB 0
-    recieveflag    DB 0
 	SendBuffer     DB 80 DUP('$'),0FEH
 	localCharIndex DB 0
 	ReceiveBuffer  DB 80 DUP('$'),0FEH
 	otherCharIndex DB 0
-	Recieve		   DB 0
 	RECI		   DB 0
 	SENI		   DB 0
 	Master		   DB 0
+	invite		   Db 0
+	ScrollBorderMaster EQU 12D
+	ScrollBorderSlave  EQU 23D
+	EndChat			   DB 0
+
 
 .CODE
 MAIN PROC FAR
 	; Initializing DS
 	 MOV            AX, @DATA
 	 MOV            DS, AX
-
-	 CALL INIT
  
 	 LEA SI, exiting
 	 MOV AH, 1
@@ -267,16 +285,14 @@ MAIN PROC FAR
 		 MoveCursor 0AH, 0DH
 		 DisplayMessage Hel						; Display "press any key to continue" message
  
-; ============================================================================================
-;										Invite Module
-; ============================================================================================
-
 		;Get any key as an indicator to continue
 		 MOV 			AH, 0
 		 INT 16h
 
 	OptionsWindow:
-
+		
+		 MOV EndChat, 0
+		 MOV Invite , 0
 		 MOV DI, OFFSET exiting					; reset exiting flag to 0
 		 MOV BH, 0
 		 MOV [DI],BH 
@@ -285,11 +301,19 @@ MAIN PROC FAR
 		 
 		 DisplayMessage Choices					; Display Options
 
-
+		 MoveCursor 00, 22D
+		 MOV BL, 80D
+		 DrawLine:
+		 	DisplayChar "-"
+			 DEC BL
+			 JNZ DrawLine
 				
-	;------------------------------Get Input and validate it--------------------------------------;
 
-	Usernames:
+;----------------------------------------get input options ----------------------------------------
+
+CALL INIT
+
+Usernames:
 
 		SF1:
 			MOV AL, 0FFH						; Send FF then wait for FF
@@ -407,21 +431,194 @@ MAIN PROC FAR
 
 			EndMySuffering:
 
-			
+MOV CL, 00				;x for printing
+MOV CH, 22				; y for prinitng
+MoveCursor  CL,CH      
+
+;MOV CL,00h
+;MOV CH, 00h
+mainloop:
+
+;---------------------------------------   
+    checkRecieving:
+        CALL Recieve2
+        LEA DI, recieveflag
+        cmp BYTE PTR [DI], 1
+        jz recievedd
+		jmp checkSending
+recievedd:
+        lea si,  Recieved
+		MOV recieveflag, 0
+		; ----------------------- check slave invitation response as master--------------------------;
+		checkfornorecieveforchat:				; this means you sent chat invitation but no anwer
+			cmp byte ptr [si], "*"
+			jnz checkfornorecieveforgame
+			jmp sendchat							; if so, send it again
+
+		checkfornorecieveforgame:				; this means you sent game invitation but no answer
+			cmp byte ptr [si], "#"
+			jnz checkrecievedchat
+			jmp sendgame						; if so send it again
+
+        checkrecievedchat:						; check if you got answer for your chat invitation if you did send one
+            cmp BYTE PTR [si], "Y"
+			jnz checkCancelchat
+			jmp chatting						; your chat invitation got accpeted, go chatting 
+		checkCancelchat:
+			CMP BYTE PTR [si], "T"				; your chat invitation got refused
+            jnz checkrecievedgame				; if not, check for other possibilities
+			INC CH
+			MoveCursor CL,CH
+			DisplayMessage	Info5			
+back:		jmp checkSending				; your chat invitation got refused, forget about it :) 
 
 
+        checkrecievedgame:						; check if you got answer for your game invitation if you did send one
+            cmp byte ptr [si], "R"
+            jnz checkcancelgame
+            jmp NotExit							; your game application got accepted, have fun playing for now
+		checkcancelgame:
+			cmp byte ptr [si], "F"				; your game invitation got refused
+			jnz checkrecievedexit				; if not, check for other possibilities
+			INC dl
+			MoveCursor CL,CH
+			DisplayMessage	Info6
+			jmp checkSending					; your game invitation got refused, hard luck :{
 
-	CHS:
-		 MOV 			AH, 0
-		 INT 16h
+        checkrecievedexit:						; check if you were abandoned :{
+            cmp byte ptr [si], "I"
+            jnz checkchat						; if not, cheer up, go check for recieving invitations
+			jmp Exit							; you are alone now :{ , me too.. 
+
+		; ----------------------- check recieved invitation as slave --------------------------;
+
+
+        checkchat:								; check if you got chat invitation
+            cmp byte ptr [si], "C"
+            jnz checkgame						; check other possibilities
+			MOV invite, 1
+			F1back:
+			CALL Inputuserforchat				; get user input as a response
+            call Send2							; send it
+			INC dl
+			MoveCursor CL, CH
+			DisplayMessage	Info3
+			DisplayBuffer userName2
+			DisplayMessage Info9
+			CMP Sent, "Y"						; check if you accept
+			jnz refuse				
+			jmp chatting						; go chat
+		refuse:									; check if you refuse
+			CMP Sent, "T"
+			jz here
+			jmp mainloop						; no valid response
+here:			jmp checkSending					; you refuesed, check if you wanna send invitation
+
+
+        checkgame:								; check if you got game invitation
+            cmp byte ptr [si], "G"
+            jz recieveddd					; check other possiblities
+			jmp checkSending
+
+    recieveddd:
+			MOV invite, 2
+			F2back:
+			CALL Inputuserforgame				; get user input as a response
+            call Send2							; send it
+			INC dl
+			MoveCursor CL,CH
+			DisplayMessage	Info4
+			DisplayBuffer userName2
+			DisplayMessage Info8
+			CMP Sent, "R"						; check if you accept
+			jnz refuse2
+			jmp NotExit							; go play for now
+		refuse2:
+			CMP Sent, "F"
+			jz checkSending
+			jmp mainloop						; no valid input, '#' or '*' is sent don't overwrite it
+
+;------------------------------- check sending --------------------------------
+
+    checkSending:
+        MOV AH, 1
+        INT 16H
+
 		
-		 CMP AH, 1   		       	   ; Check for ESC
-		 JNZ NotExit
-		 JMP Exit
+
+        JNZ checkF1
+		FlushKeyBuffer
+		jmp mainloop
+
+ checkF1:       
+        cmp ah, 3Bh   	;F1  
+        jnz checkF2
+		CMP invite, 1
+		JNZ cc
+		JMP F1back
+		cc:
+		FlushKeyBuffer
+		jmp sendchat
+checkF2:        
+		cmp ah, 3Ch     ;F2
+        jnz keep
+		CMP invite, 2
+		JNZ ccc
+		JMP F2back
+		ccc:
+		FlushKeyBuffer
+        jmp sendgame
+  keep:  
+  		cmp ah, 1       ;esc
+        jz sendexit
+		FlushKeyBuffer
+        jmp mainloop
+
+
+
+    sendchat:
+        FlushKeyBuffer
+        MOV AL, "C"
+        MOV Sent, AL
+        call Send2						; send C
+        cmp byte ptr [si],49			; check if you sent successfully, print info message
+        jz ending
+        jmp mainloop					; if not, ignore
+ending:
+		MoveCursor 00, 22D
+		DisplayMessage Info
+		DisplayBuffer userName2
+        jmp mainloop
+
+    sendgame:
+        FlushKeyBuffer
+        MOV AL, "G"
+        MOV Sent, AL					; send G
+        call Send2
+        cmp byte ptr [si],49			; check if you sent successfully, print info message
+        jz ending2
+jumping:
+        jmp mainloop					; if not, ignore
+ending2:
+		MoveCursor 00, 22D
+		DisplayMessage Info2
+		DisplayBuffer userName2
+		jmp mainloop
+
+    sendexit:
+        MOV AH, 0                   
+        INT 16
+        MOV AL, "I"						; send I
+        MOV Sent, AL
+        call Send2
+        cmp byte ptr [si],49			; check if you sent successfully
+        jnz jumping						; if not, ignore
+        jmp Exit						; if yes, exit
+
+
+	;------------------------------ Prepare for Game Module --------------------------------------;
 
 		 NotExit:
-		 	CMP AH, 3Ch 		       ; Check for F2
-		 	JNZ NotF2
 			CALL DifficultySelect
 			CALL LevelSelect
 		 	CALL ResetRound            ; Reset the player positions
@@ -429,36 +626,30 @@ MAIN PROC FAR
 		 	MOV PlayerTwoScore, 30H
 		 	JMP GameLoop 
 
-		 NotF2:
-		 	CMP AH, 3Bh 		       ; Check for F1
-		 	JNZ CHS 			       ; if the pressed key not an option, loop till it is
 
 ;=================================================================================================
 ;										 Chatting Module 
 ;=================================================================================================
 
-	Chatting:		
-		;To be Continued "D IS THAT AN EMOJI!?
-		;Move cursor to the footer
-		 MoveCursor 00H, 15H
-		
-	; Loadig the character, number of loops and preparing the interrupt 
-		 MOV 			CX, 79
-		 MOV 			AH, 2
-		 MOV 			DL, '-'
+	chatting:			
+						 CALL		   CHATINIT
+	; Do master/slave name initialization
+	; Display the name of each side
+	                     CALL          DisplayNames
 
- 	;Draw the dashed line
-	Footer:
-		 INT 21h
-		 LOOP Footer
+	lewp:                
+	                     CALL          Send
+	                     CALL          Recieve
+						 CMP 		   EndChat, 1
+						 JNE Lewp
+
+
+						 JMP OptionsWindow
+	                     
 		 
-		; Show info message
-		 DisplayMessage Info
-		
+
+		JMP chatting
 	 	; Just to hold the program to see the above changes till we decide what to do next
-		 MOV 			AH, 0
-		 INT 16h
-		 JMP Exit
 		
 	GameLoop:    
 
@@ -477,7 +668,7 @@ MAIN PROC FAR
 		 JMP OptionsWindow
 
 	CheckRoundTIme:
-
+		
 		 ; Check if Round time is 0
 		 LEA SI, RoundTime						; RoundTime is the time counter that changes on the screen
 		 CMP BYTE PTR [SI], 30H					; stored in format [Tens], [Units]. If both Tens and Units are zero, counter is 00
@@ -531,6 +722,201 @@ MAIN PROC FAR
 		 INT            21H
 
 MAIN ENDP
+
+Inputuserforchat PROC
+
+get:
+	MOV AH, 1
+	INT 16h
+	FlushKeyBuffer
+	jz noinputfound
+	; AH has the scan code
+	CMP AH, 3Bh				;F1
+	jz accept
+	CMP AH, 1
+	jz cancel
+	jmp noinputfound
+accept:
+	LEA DI, userinput
+	MOV BYTE PTR [DI], "Y"
+	jmp finish
+
+cancel:
+	LEA DI, userinput
+	MOV BYTE PTR [DI], "T"
+
+finish:
+	MOV AH, userinput
+	MOV Sent, AH
+	jmp finishinputforchat
+noinputfound:
+	MOV AH, "*"
+	MOV Sent, AH
+finishinputforchat:
+	RET
+Inputuserforchat ENDP
+
+Inputuserforgame PROC
+
+get2:
+	MOV AH, 1
+	INT 16h
+	FlushKeyBuffer
+	jz noinputfound2
+
+	; AH has the scan code
+	CMP AH, 3Ch
+	jz accept2
+	CMP AH, 1
+	jz cancel2
+	jmp noinputfound2
+
+accept2:
+	LEA DI, userinput
+	MOV BYTE PTR [DI], "R"
+	jmp finish2
+
+cancel2:
+	LEA DI, userinput
+	MOV BYTE PTR [DI], "F"
+
+finish2:
+	MOV AH, userinput
+	MOV Sent, AH
+	jmp finishinputforgame
+noinputfound2:
+	MOV AH, "#"
+	MOV Sent, AH
+finishinputforgame:
+	RET
+Inputuserforgame ENDP
+
+
+INIT PROC
+	; Might be useful to convert to a macro/proc later as it'll be used to scroll
+	; Colors the top half
+	                     
+
+
+	; The below block was copied straight out of the lab
+	;  Set Divisor Latch Access Bit
+	                     mov           dx,3fbh                            	; Line Control Register
+	                     mov           al,10000000b                       	;Set Divisor Latch Access Bit
+	                     out           dx,al                              	;Out it
+	;  Set LSB byte of the Baud Rate Divisor Latch register.
+	                     mov           dx,3f8h
+	                     mov           al,0ch
+	                     out           dx,al
+	;  Set MSB byte of the Baud Rate Divisor Latch register.
+	                     mov           dx,3f9h
+	                     mov           al,00h
+	                     out           dx,al
+	;  Set port configuration
+	                     mov           dx,3fbh
+	                     mov           al,00011011b
+	;  0:Access to Receiver buffer, Transmitter buffer
+	;  0:Set Break disabled
+	;  011:Even Parity
+	;  0:One Stop Bit
+	;  11:8bits
+	                     out           dx,al
+
+	
+	                     RET
+INIT ENDP
+
+;description
+CHATINIT PROC
+						 mov           ah,6                               	; function 6
+	                     mov           al,0                               	; How many lines to scroll
+	                     mov           bh,UPPER_COLOR                     	; Black FG and white BG
+	                     mov           ch,0                               	; upper left Y
+	                     mov           cl,0                               	; upper left X
+	                     mov           dh,ScrollBorderMaster              	; lower right Y
+	                     mov           dl,79                              	; lower right X
+	                     int           10h
+
+	; Colors the bottom half
+	                     mov           ah,6
+	                     mov           al,0
+	                     mov           bh,LOWER_COLOR                     	; White BG and black FG
+	                     mov           ch,ScrollBorderMaster+1
+	                     mov           cl,0
+	                     mov           dh,ScrollBorderSlave
+	                     mov           dl,79
+	                     int           10h
+
+	                     RET
+CHATINIT ENDP
+
+Send2 PROC
+
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that Transmitter Holding Register is Empty
+	        mov         dx , 3FDH         	; Line Status Register address
+		    In          al , dx           	; Read Line Status
+	        test        al , 00100000b    	; Bit 6: transmit shift register empty
+	        JZ          Skip              	; Not empty, skip this cycle
+            
+	; https://vitaly_filatov.tripod.com/ng/asm/asm_027.2.html
+	; Check if a key is pressed
+	;         MOV         AH,1
+	;         INT         16H               	; Sets the ZF = 0 if a key is available, ZF = 1 if not
+	;         JZ          NoInput           	; Skips sending any character if ZF = 1 to avoid repeating characters
+            
+	; ; If it was, get it, display it then send it
+	;         MOV         AH,0
+	;         INT         16H
+	;         MOV         Sent,AL           	; Stores it, probably not needed though since AL is not used later
+
+	; Display the character
+	       
+			; CMP BL,79
+			; JNZ continue
+
+	        ; MoveCursor  BL,BH             	; Moves the cursor to the top half
+	        ; INC         BL     	; Moves the x coordinate by 1 to the right to avoid overwriting
+
+	; If the transmit data register is empty, sends the character to it
+	        mov         dx , 3F8H         	; Transmit data register address
+	        mov         al, Sent
+	        out         dx , al
+            mov si, offset sentflag
+            mov byte ptr [si], 49
+			jmp done2
+	Skip:   
+			mov si, offset sentflag
+            mov byte ptr [si], 0
+	done2:
+	        RET
+Send2 ENDP
+
+Recieve2 PROC
+    
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that data recieve register is Ready
+	        mov         dx , 3FDH         	; Line Status Register address
+	CHK:    in          al , dx
+	        and         al , 1            	; Bit 1: data ready
+	        JZ          sad             	; Not Ready, skip this cycle
+
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	        mov         dx , 03F8H        	; Data recieving register address
+	        in          al , dx
+	        mov         Recieved , al     	; Stores the recieved character
+            mov si , offset recieveflag
+            mov byte ptr [si], 1
+			jmp done
+	; Displays the recieved character
+	       
+	        ; MoveCursor  CL,CH
+	        ; INC        	CL     	; Moves the away cursor 1 character to the right
+	sad:
+			 mov si , offset recieveflag
+            mov byte ptr [si], 0
+	done:
+	        RET
+Recieve2 ENDP
 
 CactusColls PROC
 ; =================================================================================================
@@ -2020,60 +2406,6 @@ LevelChosen:
 	RET
 LevelSelect ENDP
 
-INIT PROC
-	; The below block was copied straight out of the lab
-	;  Set Divisor Latch Access Bit
-	        mov         dx,3fbh           	; Line Control Register
-	        mov         al,10000000b      	;Set Divisor Latch Access Bit
-	        out         dx,al             	;Out it
-	;  Set LSB byte of the Baud Rate Divisor Latch register.
-	        mov         dx,3f8h
-	        mov         al,0ch
-	        out         dx,al
-	;  Set MSB byte of the Baud Rate Divisor Latch register.
-	        mov         dx,3f9h
-	        mov         al,00h
-	        out         dx,al
-	;  Set port configuration
-	        mov         dx,3fbh
-	        mov         al,00011011b
-	;  0:Access to Receiver buffer, Transmitter buffer
-	;  0:Set Break disabled
-	;  011:Even Parity
-	;  0:One Stop Bit
-	;  11:8bits
-	        out         dx,al
-
-	; This was also copied but modified a bit
-	; Clear screen
-	        MOV         AH,0
-	        INT         10H
-
-	; Might be useful to convert to a macro/proc later as it'll be used to scroll
-	; Colors the top half
-	        mov         ah,6              	; function 6
-	        mov         al,0              	; How many lines to scroll
-	        mov         bh,UPPER_COLOR    	; Black FG and white BG
-	        mov         ch,0              	; upper left Y
-	        mov         cl,0              	; upper left X
-	        mov         dh,12             	; lower right Y
-	        mov         dl,79             	; lower right X
-	        int         10h
-
-	; Colors the bottom half
-	        mov         ah,6
-	        mov         al,0
-	        mov         bh,LOWER_COLOR    	; White BG and black FG
-	        mov         ch,13
-	        mov         cl,0
-	        mov         dh,24
-	        mov         dl,79
-	        int         10h
-
-	        RET
-INIT ENDP
-
-
 SendI PROC
 	
 	mov         dx , 3FDH         			; Line Status Register address
@@ -2089,6 +2421,8 @@ SendI PROC
 	out         dx , al
 	MOV sentflag, 1
 
+				CMP EndChat, 1
+				JZ Leave23
 				MOV BX, 0FFFFH
 				Delay:
 				DEC BX
@@ -2099,9 +2433,9 @@ SendI ENDP
 
 RecieveI PROC
 	        mov         dx , 3FDH         	; Line Status Register address
-	CHK:    in          al , dx
+		    in          al , dx
 	        test        al , 1            	; Bit 1: data ready
-	        JZ          ABORT             	; Not Ready, skip this cycle
+	        JZ          ABORT1             	; Not Ready, skip this cycle
 
 	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
 
@@ -2117,9 +2451,283 @@ RecieveI PROC
 	       
 	        ; MoveCursor  CL,CH
 	        ; INC        	CL     	; Moves the away cursor 1 character to the right
-	ABORT:  
+	ABORT1:  
 	        RET
 RecieveI ENDP
+
+Send PROC
+	; https://vitaly_filatov.tripod.com/ng/asm/asm_027.2.html
+	; Check if a key is pressed
+	                     MOV           AH,1
+	                     INT           16H                 	; Sets the ZF = 0 if a key is available, ZF = 1 if not
+	                     JNZ           Input               	; Skips sending any character if ZF = 1 to avoid repeating characters
+	                     JMP           NoInput
+            
+	Input:               
+	; If it was, get it, display it then send it
+	                     MOV           AH,0
+	                     INT           16H
+
+	                     LEA           SI , SendBuffer
+	                     MOV           CH , 0
+	                     MOV           CL , localCharIndex
+	                     ADD           SI , CX
+	                     LEA           DI , MyCursorPos
+
+						 CMP		   AH, 3DH
+						 JNZ NotEndChat
+						 MOV EndChat, 1
+						 MOV Sent, 3DH
+						 CALL SendI
+						 JMP NoInput
+
+						 NotEndChat:
+	                     CMP           AL, 08H             	; Check if the user pressed backspace
+	                     JE            Backspace
+	                     CMP           AL , 0DH            	; Check if the user pressed enter
+	                     JE            SendBufferLBL
+
+	; Put the character in the send buffer AND DISPLAY IT
+	; TODO: CHECK IF X > 80, INC Y IF SO
+	; TODO: CHECK IF THE INDEX IS LARGER THAN THE BUFFER
+	                     CMP           BYTE PTR [SI+1],0FEH	; Check if the next character is 0FEH (BUFFER END)
+	                     JNE            NotNoInput             	; DON'T ADD ANY MORE IF SO
+						 JMP NoInput
+						 NotNoInput:
+	                     MOV           BYTE PTR [SI], AL   	; MOVE THE CHAR IN THE BUFFER
+	                     INC           localCharIndex      	; INCR THE BUFFER INDEX
+	                     MOV           CL,BYTE PTR [DI]    	; Loads the local cursor's x
+	                     MOV           CH,BYTE PTR [DI+1]  	; Same but for the y
+	                     MoveCursor    CL,CH               	; Moves the cursor to the top half
+	                     DisplayChar   AL
+	                     INC           BYTE PTR [DI]       	; Moves the x coordinate by 1 to the right to avoid overwriting
+	                     JMP           CharWritten
+
+	Backspace:           
+	                     CMP           localCharIndex,1		; CAN'T BACKSPACE PAST THE FIRST CHARACTER
+	                     JL            NoInput
+	                     DEC           BYTE PTR [DI]       	; DEC X
+	                     MOV           CL , BYTE PTR [DI]  	; Loads the local cursor's x
+	                     MOV           CH , BYTE PTR [DI+1]	; Same but for the y
+	                     MoveCursor    CL , CH
+	                     DisplayChar   ' '                 	; HIDES THE PREVIOUS CHAR
+
+	;  DEC           CL
+	                     MoveCursor    CL , CH
+	                     DEC           SI
+	                     MOV           BYTE PTR [SI], '$'
+	                     DEC           localCharIndex
+	                     JMP           CharWritten
+	SendBufferLBL:       
+	                     MOV           localCharIndex, 0
+	                     MOV           BYTE PTR [DI], 0
+	                     INC           BYTE PTR [DI+1]     	; MOVE THE CURSOR TO THE LINE BELOW
+	                     MOV           CL, BYTE PTR [DI]
+	                     MOV           CH, BYTE PTR [DI+1]
+	                     MoveCursor    CL,CH
+	                     CALL          SENDBUFFERPROC
+	
+	NoInput:             
+	CharWritten:         
+	                     RET
+Send ENDP
+
+Recieve PROC
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that data recieve register is Ready
+	START:               
+	                     LEA           SI , ReceiveBuffer
+	                     mov           dx , 3FDH           	; Line Status Register address
+		                 in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JNZ            NotAbort1               	; Not Ready, skip this cycle
+						 JMP ABORT
+						 NotAbort1:
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+
+						 CMP 		   AL, 3DH
+						 JNE Not111
+						 MOV EndChat, 1
+						 JMP ABORT
+						
+						 Not111:
+
+	; CHECK FOR THE FLAG
+	                     CMP           AL , 0FFH
+	                     JE           NotAbort2
+						 JMP ABORT
+						NotAbort2:
+	                     LEA           SI , ReceiveBuffer
+						 
+	; ; Send FFH to tell the other side that something's coming
+	; SENDFLAG_RECEIVE:
+	;                      mov           dx , 3FDH           	; Line Status Register address
+	; AGAINFLAG_RECEIVE:   In            al , dx             	; Read Line Status
+	;                      test          al , 00100000b      	; Bit 6: transmit shift register empty
+	;                      JZ            AGAINFLAG_RECEIVE   	; Not empty, skip this cycle
+
+	; ; If the transmit data register is empty, sends the character to it
+	;                      mov           dx , 3F8H           	; Transmit data register address
+	;                      mov           al , 0FFH
+	;                      out           dx , al
+
+	
+	RECEIVECHAR:         
+	                     mov           dx , 3FDH           	; Line Status Register address
+	CHK_RECEIVE:         in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JZ            CHK_RECEIVE         	; Not Ready, skip this cycle
+						 
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+	                     MOV           BYTE PTR [SI] , AL
+	                     INC           SI
+	;  DisplayChar   AL
+	                     CMP           AL , '$'
+	                     JE            DISPLAYRECEIVED
+	                     JMP           RECEIVECHAR
+	DISPLAYRECEIVED:     
+	                     LEA           SI, OtherCursorPos
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+	                     DisplayString ReceiveBuffer
+	                     INC           BYTE PTR [SI+1]
+
+	                     MOV           CX, 30
+	                     LEA           DI,ReceiveBuffer
+	CLEAR_RECEIVE_BUFFER:
+	                     MOV           BYTE PTR [DI], '$'
+	                     INC           DI
+	                     LOOP          CLEAR_RECEIVE_BUFFER
+	ABORT:               
+	                     RET
+Recieve ENDP
+
+DisplayNames PROC
+	                     LEA           SI, MyCursorPos
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+	                     DisplayBuffer userName
+	                     INC           BYTE PTR [SI+1]
+	                     MOV           BYTE PTR [SI], 0
+
+	                     LEA           DI, OtherCursorPos
+	                     MOV           CL, BYTE PTR [DI]
+	                     MOV           CH, BYTE PTR [DI+1]
+	                     MoveCursor    CL,CH
+	                     DisplayBuffer userName2
+	                     INC           BYTE PTR [DI+1]
+	                     MOV           BYTE PTR [DI], 0
+	                     RET
+DisplayNames ENDP
+
+SENDBUFFERPROC PROC
+		
+	                     LEA           SI , SendBuffer
+	; Send FFH to tell the other side that something's coming
+	SENDFLAG:            
+	                     mov           dx , 3FDH           	; Line Status Register address
+	AGAINFLAG:           In            al , dx             	; Read Line Status
+	                     test          al , 00100000b      	; Bit 6: transmit shift register empty
+	                     JZ            AGAINFLAG           	; Not empty, skip this cycle
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov           dx , 3F8H           	; Transmit data register address
+	                     mov           al , 0FFH
+	                     out           dx , al
+
+	; ; CHECKING FOR REPLY
+	;                      mov           dx , 3FDH           	; Line Status Register address
+	; CHKSEND:             in            al , dx
+	;                      test          al , 1              	; Bit 1: data ready
+	;                      JZ            CHKSEND             	; Not Ready, skip this cycle
+	; ; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+	;                      mov           dx , 03F8H          	; Data recieving register address
+	;                      in            al , dx
+	;                      CMP           AL, 0FFH
+	;                      JNE           CHKSEND
+
+
+	SENDCHAR:            
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that Transmitter Holding Register is Empty
+	                     mov           dx , 3FDH           	; Line Status Register address
+	AGAIN:               In            al , dx             	; Read Line Status
+	                     test          al , 00100000b      	; Bit 6: transmit shift register empty
+	                     JZ            AGAIN               	; Not empty, skip this cycle
+
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov           dx , 3F8H           	; Transmit data register address
+	                     mov           al , BYTE PTR [SI]
+	                     out           dx , al
+	                     MOV           AH, BYTE PTR [SI]
+	                     MOV           BYTE PTR [SI], '$'  	; CLEARING THE BUFFER FOR THE NEXT MASSEGES
+	                     INC           SI
+	                     CMP           AH , '$'
+	                     JNE           SENDCHAR
+	NothingReceived:     
+
+	                     RET
+
+SENDBUFFERPROC ENDP
+
+ScrollMasterUp PROC
+	; AL = lines to scroll (0 = clear, CH, CL, DH, DL are used),
+	; BH = Background Color and Foreground color. BH = 43h, means that background color is red and foreground color is cyan. Refer the BIOS color attributes
+	; CH = Upper row number, CL = Left column number, DH = Lower row number, DL = Right column number
+	                     MOV           AL , 1
+	                     MOV           BH , UPPER_COLOR
+	                     MOV           CH , 1
+	                     MOV           CL , 0
+	                     MOV           DH , ScrollBorderMaster
+	                     MOV           DL , 79D
+	                     MOV           AH , 6D
+	                     INT           10H
+
+	                     LEA           SI, MyCursorPos
+	;  SUB           BYTE PTR [SI+1],1
+	                     MOV           BYTE PTR [SI+1], ScrollBorderMaster
+	                     DEC           BYTE PTR [SI+1]
+
+	                     MoveCursor    0,0
+	                     DisplayBuffer userName
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+
+	                     RET
+
+ScrollMasterUp ENDP
+
+ScrollSlaveUp PROC
+	                     MOV           AL , 1
+	                     MOV           BH , LOWER_COLOR
+	                     MOV           DH , ScrollBorderMaster + 1
+	                     MOV           CL , 0
+	                     MOV           DH , ScrollBorderSlave
+	                     MOV           DL , 79D
+	                     MOV           AH , 6D
+	                     INT           10H
+
+	                     LEA           SI, OtherCursorPos
+	;  SUB           BYTE PTR [SI+1],1
+	                     MOV           BYTE PTR [SI+1],ScrollBorderSlave
+	                     DEC           BYTE PTR [SI+1]
+
+	                     MoveCursor    0,13D
+	                     DisplayBuffer userName2
+
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+
+	                     RET
+ScrollSlaveUp ENDP
 
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
