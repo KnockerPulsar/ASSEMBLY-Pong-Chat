@@ -119,6 +119,7 @@ ENDM
 	 ;ExtraBullet2			DB 40, 12, -2, 0, 0
 	 DB '~'
 	 ExtraNum 				EQU 1
+	 P2Fired				DB 0 ; If 0 then P2 didn't shoot this turn and 1 means he shot
 	
 	; Cactus data
 	; =============================================================================================
@@ -215,6 +216,41 @@ ENDM
 	SENI		   DB 0
 	Master		   DB 0
 
+	; Chatting Variables
+	; ============================================================================================
+	; 	
+	UPPER_COLOR    DB 00FH                     	; 0 For black BG and F for white FG (text)
+	LOWER_COLOR    DB 0F0H                     	; Reverse the above
+	MyCursorPos    DB 0,0                      	; x,y for the current side's cursor (Local messages will be displayed at the top)
+	OtherCursorPos DB 0,12                     	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
+	Recieved       DB 0                        	; The recieved character
+	Sent           DB 0                        	; The sent character
+	MyName         DB 16,3,"SLAVE", 12 DUP('$')
+	OtherName      DB 17 DUP('$')
+	Master         DB 0
+	SendBuffer     DB 80 DUP('$'),0FEH
+	localCharIndex DB 0
+	ReadyToSend	   DB 0							;1 means that enter has been clicked and the stored text should be sent
+	ReceiveBuffer  DB 80 DUP('$'),0FEH
+	otherCharIndex DB 0
+	ReadtToSendS   DB 0							;1 means that enter has been clicked and the stored text should be sent
+
+	; Serial Communication Variables
+	; ============================================================================================
+	; 	
+	; First Transmission:
+	; Start Bit: 05h, Chosen Difficulty (1 byte), Max Bullets (1 byte), Current Level (1 byte), Name Size (1 byte), Name, Stop Bit (0FFh)
+	FirstTransmissionBuffer		DB	30 DUP(?)			;A little Long in case of a long name
+	; MasterGameBuffer:
+	; Start Bit: 01h, Player1 Parameters (4 bytes), P1Score (1 byte), P2Score (1 byte), TimeCount (2 byteS), Exit Check (1 Byte), Bullets Count (1 byte), Bullets' data (5 bytes each), Chat length, Chat ,Stop Bit (0FFh)
+	FromMasterGameBuffer 			DB	200 DUP(?);Used to temporarily store the data slave receives form master
+	FromMasterChatLength			DB ?		;Used to store the chat length slave receives form master
+	; FromSlaveGameBuffer:
+	; Start Bit: 02h, Player2 Parameters (4 bytes), Exit Check (1 Byte), [Bullets Count (1 byte)][PROBABLY NOTa], Bullets' data (5 bytes each), Chat length, Chat ,Stop Bit (0FFh)
+	FromSlaveGameBuffer	 		DB 100 DUP(?)
+	FromSlaveChatLength			DB ?		;Used to temporarily store the chat length slave receives form master
+	; MasterGIndex				DB
+	SlaveGIndex				DB 0
 .CODE
 MAIN PROC FAR
 	; Initializing DS
@@ -240,23 +276,23 @@ MAIN PROC FAR
 		 MoveCursor 0CH, 0CH
  
 		 MOV 			AH, 0Ah
-		 MOV 			DX, OFFSET userName
+		 MOV 			DX, OFFSET MyName
 		 INT 21h			; read username
 ; ============================================================================================
 ;									username Validations
 ; ============================================================================================
 
-		 CMP userName+2, 41h 					;less than A
+		 CMP MyName+2, 41h 					;less than A
 		 JB Home 
 		 
-		 CMP userName+2, 5Ah
+		 CMP MyName+2, 5Ah
 		 JBE Welcome 							; if in range A:Z
 		 		
 	; If greater than A and not in range A:Z, check for a:z
 	Check:
-		 CMP userName+2,61h						; less than a
+		 CMP MyName+2,61h						; less than a
 		 JB Home 
-		 CMP userName+2, 7Ah
+		 CMP MyName+2, 7Ah
 		 JA Home  								; If not a letter, clear
 
 ; ============================================================================================
@@ -2121,6 +2157,364 @@ RecieveI PROC
 	        RET
 RecieveI ENDP
 
+
+MasterSendsData PROC
+						 LEA           SI , FromMasterGameBuffer ;First bit contains the whole length
+						 MOV			AL, 26D
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+						 LEA		   DI, PlayerOne
+						 MOV			CX,4
+			PrepareP1Data:
+						 MOV			AL, BYTE PTR [DI]
+						 MOV			BYTE PTR [SI],AL
+						 INC			DI
+						 INC			SI
+						 LOOP			PrepareP1Data
+						 MOV			AL, PlayerOneScore
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+						 MOV			AL, PlayerTwoScore
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+						 LEA		   	DI, RoundTime
+						 MOV			AL, BYTE PTR [DI]
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+						 INC			DI
+						 MOV			AL, BYTE PTR [DI]
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+						 MOV			AL, exiting
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+
+						 LEA		    DI, P1Bullet1
+						 MOV			CX,15
+			PrepareP1BulletData:
+						 MOV			AL, BYTE PTR [DI]
+						 MOV			BYTE PTR [SI+1],AL
+						 INC			DI
+						 INC			SI
+						 LOOP			PrepareP1BulletData
+
+						 MOV			AL, ReadyToSend
+						 CMP			AL,0			;I.e Not ready to send the text only
+						 JZ				SENDFLAGMSD
+						 MOV			AL, localCharIndex
+						 LEA           	DI , FromMasterGameBuffer ;First bit contains the whole size of the data sent
+						 ADD			BYTE PTR [DI],AL
+
+						 LEA			DI, SendBuffer
+			PrepareP1Chat: 
+						 MOV			AL, BYTE PTR [DI]
+						 CMP            AL , '$'
+						 JZ				SENDFLAGMSD
+						 MOV			BYTE PTR [SI],AL
+						 MOV			BYTE PTR [DI],'$'
+						 INC			SI
+						 INC			DI
+						 JMP			PrepareP1Chat
+
+	; Send FFH to tell the other side that something's coming
+	SENDFLAGMSD:            
+	                     mov           dx , 3FDH                          	; Line Status Register address
+	AGAINFLAGMSD:           In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            AGAINFLAGMSD                          	; Not empty, skip this cycle
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov           dx , 3F8H                          	; Transmit data register address
+	                     mov           al , 0FFH
+	                     out           dx , al
+						 LEA           SI , FromMasterGameBuffer
+	SENDCHARMSD:            
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that Transmitter Holding Register is Empty
+	                     mov           dx , 3FDH                          	; Line Status Register address
+	AGAINMSD:               In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            AGAINMSD                              	; Not empty, skip this cycle
+
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov           dx , 3F8H                          	; Transmit data register address
+	                     mov           al , BYTE PTR [SI]
+	                     out           dx , al
+	                     MOV           AH, BYTE PTR [SI]
+	                     MOV           BYTE PTR [SI], '$'                 	; CLEARING THE BUFFER FOR THE NEXT MASSEGES
+	                     INC           SI
+	                     CMP           AH , '$'
+	                     JNE           SENDCHARMSD    
+
+	                     RET
+
+MasterSendsData	ENDP
+
+SlaveRecievesMasterData PROC
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that data recieve register is Ready             
+	                     LEA           SI , FromMasterGameBuffer
+						 MOV		   CX , 0				;Counts the number of bits
+	                     mov           dx , 3FDH           	; Line Status Register address
+	CHKSGM:              in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JZ            CHKSGM	         	; Not Ready, skip this cycle
+	; If Ready read the VALUE in Receive data register
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+
+	; CHECK FOR THE STOP BIT FLAG
+	                     CMP           AL , 0FFH
+	                     JE           StartSRM
+						 JMP			ABORTSGM
+
+StartSRM:
+	                     LEA           SI , FromMasterGameBuffer		
+	RECEIVECHARSBM:
+	                     mov           dx , 3FDH           	; Line Status Register address
+	CHK_RECEIVESGM:      in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JZ            CHK_RECEIVESGM         	; Not Ready, skip this cycle
+						 
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+	                     MOV           BYTE PTR [SI] , AL
+	                     INC           SI
+						 INC CL
+						 CMP		   CL, 26D
+						 JGE		   StartReadingChatData	
+						 JMP 		   RECEIVECHARSBM
+
+StartReadingChatData:
+						LEA             SI , FromMasterGameBuffer
+						LEA				DI, PlayerOne
+						MOV				BH,0
+						MOV				BL, BYTE PTR [SI]			;Contains All Buffer Length
+						SUB				BX, CX						;BX	now contains chat length
+						PUSH			BX
+						MOV				BX,0
+						MOV				CX, 4						
+			AddP1Data:	MOV				AL, BYTE PTR [SI+BX+1]
+						MOV				BYTE PTR [DI+BX],AL
+						INC				BX
+						LOOP			AddP1Data
+						POP				BX
+						MOV				AL, BYTE PTR [SI+5]
+						MOV				PlayerOneScore, AL
+						MOV				AL, BYTE PTR [SI+6]
+						MOV				PlayerTwoScore, AL
+						MOV				AL, BYTE PTR [SI+7]
+						MOV				RoundTime, AL
+						MOV				AL, BYTE PTR [SI+8]
+						MOV				RoundTime+1, AL
+						MOV				AL, BYTE PTR [SI+9]
+						MOV				exiting, AL
+						PUSH			BX
+						MOV				CX, 15
+						MOV				BX, 0
+						LEA				DI, P1Bullet1
+		BulletsDataSBM:	MOV				AL, BYTE PTR [SI+BX+10]
+						MOV				BYTE PTR [DI+BX],AL
+						INC				BX
+						LOOP			BulletsDataSBM
+						POP 			BX
+						 MOV           CX, 30
+	                     LEA           DI, FromMasterGameBuffer
+	CLEAR_FromMasterGameBuffer:
+	                     MOV           BYTE PTR [DI], '$'
+	                     INC           DI
+	                     LOOP          CLEAR_FromMasterGameBuffer
+						
+						MOV				CX, BX				;Chat char count + 1 stop Bit
+	                     LEA            DI,ReceiveBuffer	
+						PUSH			CX
+						MOV				FromMasterChatLength, CL
+	RECEIVECHARSBM2:
+	                     mov           dx , 3FDH           	; Line Status Register address
+	CHK_RECEIVESGM2:     in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JZ            CHK_RECEIVESGM2      ; Not Ready, skip this cycle
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+					     MOV           BYTE PTR [DI] , AL
+	                     INC           DI
+						 CMP		   CL, 0FFH				;Check if it's the Stop bit
+						 JZ		   	   FinishedReadingChatDataGMS	
+						 JMP 		   RECEIVECHARSBM2
+
+FinishedReadingChatDataGMS:
+	                     POP		   CX
+	                     LEA           DI,ReceiveBuffer
+	CLEAR_RECEIVE_BUFFER_FORG:
+	                     MOV           BYTE PTR [DI], '$'
+	                     INC           DI
+	                     LOOP          CLEAR_RECEIVE_BUFFER_FORG
+	ABORTSGM:               
+	                     RET
+SlaveRecievesMasterData ENDP
+
+SlaveSendData PROC
+						 LEA           SI , FromSlaveGameBuffer ;First bit contains the whole length
+						 MOV			AL, 8D
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+						 LEA		   DI, PlayerTwo
+						 MOV			CX,4
+			PrepareP2Data:
+						 MOV			AL, BYTE PTR [DI]
+						 MOV			BYTE PTR [SI],AL
+						 INC			DI
+						 INC			SI
+						 LOOP			PrepareP2Data
+						 MOV			AL, P2Fired
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+						 MOV			AL, exiting
+						 MOV			BYTE PTR [SI],AL
+						 INC			SI
+
+						 MOV			AL, ReadtToSendS
+						 CMP			AL,0			;I.e Not ready to send the text only
+						 JZ				SENDFLAGSSD
+						 MOV			AL, localCharIndex
+						 LEA           	DI , FromSlaveGameBuffer ;First bit contains the whole size of the data sent
+						 ADD			BYTE PTR [DI],AL
+
+						 LEA			DI, SendBuffer
+			PrepareP2Chat: 
+						 MOV			AL, BYTE PTR [DI]
+						 CMP            AL , '$'
+						 JZ				SENDFLAGSSD
+						 MOV			BYTE PTR [SI],AL
+						 MOV			BYTE PTR [DI],'$'
+						 INC			SI
+						 INC			DI
+						 JMP			PrepareP2Chat
+
+	; Send FFH to tell the other side that something's coming
+	SENDFLAGSSD:            
+	                     mov           dx , 3FDH                          	; Line Status Register address
+	AGAINFLAGSSD:           In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            AGAINFLAGSSD                          	; Not empty, skip this cycle
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov           dx , 3F8H                          	; Transmit data register address
+	                     mov           al , 0FFH
+	                     out           dx , al
+						 LEA           SI , FromSlaveGameBuffer
+	SENDCHARSSD:            
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that Transmitter Holding Register is Empty
+	                     mov           dx , 3FDH                          	; Line Status Register address
+	AGAINSSD:               In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            AGAINSSD                              	; Not empty, skip this cycle
+
+
+	; If the transmit data register is empty, sends the character to it
+	                     mov           dx , 3F8H                          	; Transmit data register address
+	                     mov           al , BYTE PTR [SI]
+	                     out           dx , al
+	                     MOV           AH, BYTE PTR [SI]
+	                     MOV           BYTE PTR [SI], '$'                 	; CLEARING THE BUFFER FOR THE NEXT MASSEGES
+	                     INC           SI
+	                     CMP           AH , '$'
+	                     JNE           SENDCHARSSD    
+
+	                     RET
+
+
+SlaveSendData ENDP
+	
+
+MasterReceiveData PROC
+
+	; https://stanislavs.org/helppc/int_14.html
+	; Check that data recieve register is Ready             
+	                     LEA           SI , FromSlaveGameBuffer
+						 MOV		   CX , 0				;Counts the number of bits
+	                     mov           dx , 3FDH           	; Line Status Register address
+	CHKMRD:              in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JZ            CHKMRD	         	; Not Ready, skip this cycle
+	; If Ready read the VALUE in Receive data register
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+
+	; CHECK FOR THE STOP BIT FLAG
+	                     CMP           AL , 0FFH
+	                     JE           StartMRD
+						 JMP			ABORTMRD
+StartMRD:
+	                     LEA           SI , FromMasterGameBuffer		
+	RECEIVECHARMRD:
+	                     mov           dx , 3FDH           	; Line Status Register address
+	CHK_RECEIVEMRD:      in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JZ            CHK_RECEIVEMRD         	; Not Ready, skip this cycle
+						 
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+	                     MOV           BYTE PTR [SI] , AL
+	                     INC           SI
+						 INC CL
+						 CMP		   CL, 8D
+						 JGE		   StartReadingChatData2	
+						 JMP 		   RECEIVECHARMRD
+StartReadingChatData2:
+						LEA             SI , FromSlaveGameBuffer
+						LEA				DI, PlayerTwo
+						MOV				BH,0
+						MOV				BL, BYTE PTR [SI]			;Contains All Buffer Length
+						SUB				BX, CX						;BX	now contains chat length
+						PUSH			BX
+						MOV				BX,0
+						MOV				CX, 4						
+			AddP2Data:	MOV				AL, BYTE PTR [SI+BX+1]
+						MOV				BYTE PTR [DI+BX],AL
+						INC				BX
+						LOOP			AddP2Data
+						POP				BX
+						MOV				AL, BYTE PTR [SI+5]
+						MOV				P2Fired, AL
+						MOV				AL, BYTE PTR [SI+6]
+						MOV				exiting, AL
+						 MOV           CX, 10
+	                     LEA           DI, FromSlaveGameBuffer
+	CLEAR_FromSlaveGameBuffer:
+	                     MOV           BYTE PTR [DI], '$'
+	                     INC           DI
+	                     LOOP          CLEAR_FromSlaveGameBuffer
+						
+						MOV				CX, BX				;Chat char count + 1 stop Bit
+	                     LEA            DI,ReceiveBuffer	
+						PUSH			CX
+						MOV				FromSlaveChatLength, CL
+	RECEIVECHARMRD2:
+	                     mov           dx , 3FDH           	; Line Status Register address
+	CHK_RECEIVEMRD2:     in            al , dx
+	                     test          al , 1              	; Bit 1: data ready
+	                     JZ            CHK_RECEIVEMRD2      ; Not Ready, skip this cycle
+	                     mov           dx , 03F8H          	; Data recieving register address
+	                     in            al , dx
+					     MOV           BYTE PTR [DI] , AL
+	                     INC           DI
+						 CMP		   CL, 0FFH				;Check if it's the Stop bit
+						 JZ		   	   FinishedReadingChatDataMRD	
+						 JMP 		   RECEIVECHARMRD2
+
+FinishedReadingChatDataMRD:
+	                     POP		   CX
+	                     LEA           DI,ReceiveBuffer
+	CLEAR_RECEIVE_BUFFER_FORG2:
+	                     MOV           BYTE PTR [DI], '$'
+	                     INC           DI
+	                     LOOP          CLEAR_RECEIVE_BUFFER_FORG2
+	ABORTMRD:               
+	                     RET
+MasterReceiveData ENDP
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
 
