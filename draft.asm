@@ -208,7 +208,7 @@ ENDM
 	Recieved       DB 0   	; The recieved character
 	Sent           DB 0     ; The sent character
 	userinput		DB 0
-	InvitationSender DB 0
+ 	InvitationSender DB 0
 	; Difficulty & Levels
 	; ============================================================================================= 
 	; Speed multipliers
@@ -712,7 +712,7 @@ reset:
 		 CALL WinScreen
 		 JMP OptionsWindow
 
-	CheckRoundTIme:
+	CheckRoundTime:
 		
 		 ; Check if Round time is 0
 		 LEA SI, RoundTime						; RoundTime is the time counter that changes on the screen
@@ -2270,7 +2270,7 @@ CheckInput:
 ; ---------------------------------------------------------------------------------------------------
 ; Player 1 
 ; ---------------------------------------------------------------------------------------------------
-
+masterPlayer:
 	 LEA SI, PlayerOne
      MOV CL, BYTE PTR [SI + 1]
     ;  MOV AH,1
@@ -2282,15 +2282,27 @@ CheckInput:
 	 MOV BYTE PTR [SI], 1
 	 JMP exitGame											; exit this procedure
 	continue:
+CMP InvitationSender, 1
+jz slavePlayer
 
 	SKIP_JUMP:
-     CMP AH, 17D											; Checks if player1 pressed W, move up
+    ;  CMP AH, 17D											; Checks if player1 pressed W, move up
+    ;  JZ MoveUpP1
+    
+    ;  CMP AH, 31D											;  Checks if player1 pressed S, move down
+    ;  JZ MoveDownP1	
+    ;  JMP EndMoveCheckP1
+     
+	 LEA SI, PlayerOne
+     MOV CL, BYTE PTR [SI + 1]
+
+     CMP AH, 72D											; player pressed Up arrow
      JZ MoveUpP1
     
-     CMP AH, 31D											;  Checks if player1 pressed S, move down
-     JZ MoveDownP1	
+     CMP AH, 80D											; player pressed Down arrow
+     JZ MoveDownP1
      JMP EndMoveCheckP1
-     
+
 MoveUpP1:    												; Checks if PlayerOne is moving up & out of the game boundary
 	 CMP CL, 2
 	 JZ EndMoveCheckP1
@@ -2304,23 +2316,33 @@ MoveDownP1:     											; Checks if PlayerOne is moving down & out of the gam
      JMP EndMoveCheckP1
 
 EndMoveCheckP1:
-     MOV BYTE PTR [SI + 1], CL
-	 CMP AH, 32D
-	 JNZ EndShootCheckP1 									; If the player didn't press D, don't check for bullets
+    ;  MOV BYTE PTR [SI + 1], CL
+	;  CMP AH, 32D
+	;  JNZ EndShootCheckP1 									; If the player didn't press D, don't check for bullets
+
+	 MOV BYTE PTR [SI + 1], CL
+
+	 CMP AH, 75D
+	 JNZ EndShootCheckP1 
 
 	 LEA SI, PlayerOne
 	 MOV BL, BYTE PTR [SI + 3]
 	 CMP BL, 0
-	 JNZ EndShootCheckP1 									; If the player has any bullets in the arena, don't shoot any more bullets
+	 ;JNZ EndShootCheckP1 									; If the player has any bullets in the arena, don't shoot any more bullets
+	 jz her
 	 MOV BL, BYTE PTR[SI + 2]
 	 CMP BL, 0
-	 JZ EndShootCheckP1  									; If the player has no bullets left to shoot, don't shoot
+	 ;JZ EndShootCheckP1  									; If the player has no bullets left to shoot, don't shoot
+	 jz her
 	 CALL Player1Shoot
+her:
+	 jmp exitGame
+	
 	EndShootCheckP1:
 ; ---------------------------------------------------------------------------------------------------
 ; Player 2 
 ; ---------------------------------------------------------------------------------------------------
-	
+	slavePlayer:
 	 LEA SI, PlayerTwo
      MOV CL, BYTE PTR [SI + 1]
 
@@ -2334,7 +2356,7 @@ EndMoveCheckP1:
 MoveUpP2:     											 	; Checks if PlayerTwo is moving up & out of the game boundary
 	 CMP CL, 2
 	 JZ EndInputP2
-     DEC CL
+	 DEC CL
 	 skip21:
      JMP EndInputP2
 
@@ -2348,7 +2370,7 @@ EndInputP2:
      MOV BYTE PTR [SI + 1], CL
 
 	 CMP AH, 75D
-	 JNZ EndShootCheckP2 									; If the player didn't press D, don't check for bullets
+	 JNZ EndShootCheckP2 									; If the player didn't press left arrow, don't check for bullets
  
 	 LEA SI, PlayerTwo
 	 MOV BL, BYTE PTR [SI + 3]
