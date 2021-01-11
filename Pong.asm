@@ -2251,16 +2251,16 @@ StartReadingChatData2:
 					     MOV           BYTE PTR [DI] , AL
 	                     INC           DI
 						 CMP		   CL, 0FFH				;Check if it's the Stop bit
-						 JZ		   	   FinishedReadingChatDataGMS	
+						 JZ		   	   FinishedReadingChatDataMRD	
 						 JMP 		   RECEIVECHARMRD2
 
-FinishedReadingChatDataGMS:
+FinishedReadingChatDataMRD:
 	                     POP		   CX
 	                     LEA           DI,ReceiveBuffer
-	CLEAR_RECEIVE_BUFFER_FORG:
+	CLEAR_RECEIVE_BUFFER_FORG2:
 	                     MOV           BYTE PTR [DI], '$'
 	                     INC           DI
-	                     LOOP          CLEAR_RECEIVE_BUFFER_FORG
+	                     LOOP          CLEAR_RECEIVE_BUFFER_FORG2
 	ABORTMRD:               
 	                     RET
 MasterReceiveData ENDP
