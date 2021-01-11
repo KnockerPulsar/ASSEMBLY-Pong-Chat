@@ -10,16 +10,13 @@ DisplayChar MACRO Char
 	 POP  AX
 ENDM
 MoveCursor MACRO X,Y 
-	 PUSH AX
-	 PUSH DX
- 
+
 	 mov  ah,2
 	 mov  dl,X
 	 mov  dh,Y
+	 mov bh, 0
 	 int  10h
- 
-	 POP  DX   
-	 POP  AX
+
 ENDM
 GoIntoTextMode MACRO
 	 PUSH AX
@@ -156,7 +153,7 @@ ENDM
 	 Info          			DB 13,10,'- You send a chat invitaion to ','$'
 	 userName      			DB 16,?, 16 DUP('$')
 	 userNameScore 			DB "'s Score : ", '$'
-	 userName2     			DB "Abdelrahman", '$' ; Fixed at Abdelrahman for now but should be whatever User types in chatting screen
+	 userName2     			DB 16,?, 16 DUP('$')
 	 p1Score 	   			DB "Tarek's Score : ", '$'
 	 p2Score 	   			DB "Abdelrahman's Score :", '$'
 	 endGame 	   			DB "- To end the game with Abdelrahman, Press F4", '$'
@@ -172,6 +169,8 @@ ENDM
 	 Difficulties			DB '  * For easy, press 1', 13,10,13,10, 09,09,09, '  * For medium press, 2', '$'
 	 ChooseLevel			DB "Please Choose a level",'$'
 	 Levels					DB '  * For level 1, press 1', 13,10,13,10, 09,09,09, '  * For level 2, press 2', '$'
+	 Sendingchat			DB "You have sent a chat invite to ", '$'
+	 RecChat				DB " Sent you a chat invitation, to accept F1"
 
 	; Other variables
 	; ============================================================================================= 
@@ -195,12 +194,34 @@ ENDM
 	ChosenDiff 			    DB ?
 	MaxBullets			    DB ?
 	CurrLevel			 	DB ?
+	; =============================================================================================
+	; Chat variables
+	UPPER_COLOR    DB 00FH	; 0 For black BG and F for white FG (text)
+	LOWER_COLOR    DB 0F0H	; Reverse the above
+	MyCursorPos    DB 0,0 	; x,y for the current side's cursor (Local messages will be displayed at the top)
+	OtherCursorPos DB 0,13	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
+	Recieved       DB 0   	; The recieved character
+	Sent           DB 0     ; The sent character
+	SendIndex	   DB 1					;///NOT USED
+    ReceivedSize   DB 0
+    sentflag       DB 0
+    recieveflag    DB 0
+	SendBuffer     DB 80 DUP('$'),0FEH
+	localCharIndex DB 0
+	ReceiveBuffer  DB 80 DUP('$'),0FEH
+	otherCharIndex DB 0
+	Recieve		   DB 0
+	RECI		   DB 0
+	SENI		   DB 0
+	Master		   DB 0
 
 .CODE
 MAIN PROC FAR
 	; Initializing DS
 	 MOV            AX, @DATA
 	 MOV            DS, AX
+
+	 CALL INIT
  
 	 LEA SI, exiting
 	 MOV AH, 1
@@ -246,6 +267,10 @@ MAIN PROC FAR
 		 MoveCursor 0AH, 0DH
 		 DisplayMessage Hel						; Display "press any key to continue" message
  
+; ============================================================================================
+;										Invite Module
+; ============================================================================================
+
 		;Get any key as an indicator to continue
 		 MOV 			AH, 0
 		 INT 16h
@@ -259,8 +284,134 @@ MAIN PROC FAR
 		 MoveCursor 18H, 0AH
 		 
 		 DisplayMessage Choices					; Display Options
+
+
 				
 	;------------------------------Get Input and validate it--------------------------------------;
+
+	Usernames:
+
+		SF1:
+			MOV AL, 0FFH						; Send FF then wait for FF
+			MOV Sent, AL
+			CALL SendI
+
+			RF1:
+			CALL RecieveI	
+			LEA DI, recieveflag
+			CMP BYTE PTR [DI], 1				; If flag is 1, check what was received
+			JNZ RF1
+			MOV BYTE PTR [DI], 0
+			CMP Recieved, 0FFH					
+			JNZ NotW1							; If FF was received, That means that window 2 is sending to window1 and waiting for answer
+
+			MOV AL, "R"							; Here window one answers back with R and sends its userName
+			MOV Sent, AL
+			CALL SendI
+
+			WaitW2:
+				CALL RecieveI	
+				LEA DI, recieveflag
+				CMP BYTE PTR [DI], 1
+				JNZ WaitW2
+				MOV BYTE PTR [DI], 0
+
+			MOV sentflag, 0
+			LEA SI, userName
+			MOV CL, BYTE PTR [SI + 1]
+			MOV CH, 00H
+			ADD SI, 2
+			UserN1:
+				MOV AL, BYTE PTR [SI]
+				MOV Sent, AL
+				CALL SendI
+				INC SI
+				CMP sentflag, 1
+				JNZ UserN1
+				MOV sentflag, 0
+				DEC CL
+				CMP CL, 0
+				JNZ UserN1
+			MOV Sent, 0FFH
+			CALL SendI
+
+				LEA SI, userName2
+				ADD SI, 2
+				MOV Sent, "R"
+				CALL SendI
+			RecUserN2:
+				CALL RecieveI
+				LEA DI, recieveflag
+				CMP BYTE PTR [DI], 1
+				JNZ RecUserN2
+				MOV BYTE PTR [DI], 0
+				CMP Recieved, 0FFH
+				JZ EndMySuffering
+				MOV AL, Recieved
+				MOV BYTE PTR [SI], AL
+				INC SI
+				JMP RecUserN2
+
+
+			NotW1:
+			;CALL RecieveI
+			;LEA DI, recieveflag
+			;CMP BYTE PTR [DI], 1
+			;JNZ NotW1`
+			;MOV BYTE PTR [DI], 0
+			
+			LEA SI, userName2
+			ADD SI, 2
+			
+			MOV Sent, "R"
+			CALL SendI
+			RecUserN1:
+				CALL RecieveI
+				LEA DI, recieveflag
+				CMP BYTE PTR [DI], 1
+				JNZ RecUserN1
+				MOV BYTE PTR [DI], 0
+				CMP Recieved, 0FFH
+				JZ EndRecUserN1
+				MOV AL, Recieved
+				MOV BYTE PTR [SI], AL
+				INC SI
+				JMP RecUserN1
+
+			EndRecUserN1:
+
+			WaitW1:
+				CALL RecieveI
+				LEA DI, recieveflag
+				CMP BYTE PTR [DI], 1
+				JNZ WaitW1
+				CMP BYTE PTR [DI], 0
+
+			LEA SI, userName
+			MOV CL, BYTE PTR [SI + 1]
+			MOV CH, 00H
+			ADD SI, 2
+			UserN2:
+				MOV AL, BYTE PTR [SI]
+				DisplayChar AL
+				MOV Sent, AL
+				CALL SendI
+				CMP sentflag, 1
+				JNZ UserN2
+				MOV sentflag, 0
+				INC SI
+				DEC CL
+				CMP CL, 0
+				JNZ UserN2
+			MOV Sent, 0FFH
+			CALL SendI
+
+			EndMySuffering:
+
+			
+
+						
+
 	CHS:
 		 MOV 			AH, 0
 		 INT 16h
@@ -1869,6 +2020,107 @@ Level2:
 LevelChosen:
 	RET
 LevelSelect ENDP
+
+INIT PROC
+	; The below block was copied straight out of the lab
+	;  Set Divisor Latch Access Bit
+	        mov         dx,3fbh           	; Line Control Register
+	        mov         al,10000000b      	;Set Divisor Latch Access Bit
+	        out         dx,al             	;Out it
+	;  Set LSB byte of the Baud Rate Divisor Latch register.
+	        mov         dx,3f8h
+	        mov         al,0ch
+	        out         dx,al
+	;  Set MSB byte of the Baud Rate Divisor Latch register.
+	        mov         dx,3f9h
+	        mov         al,00h
+	        out         dx,al
+	;  Set port configuration
+	        mov         dx,3fbh
+	        mov         al,00011011b
+	;  0:Access to Receiver buffer, Transmitter buffer
+	;  0:Set Break disabled
+	;  011:Even Parity
+	;  0:One Stop Bit
+	;  11:8bits
+	        out         dx,al
+
+	; This was also copied but modified a bit
+	; Clear screen
+	        MOV         AH,0
+	        INT         10H
+
+	; Might be useful to convert to a macro/proc later as it'll be used to scroll
+	; Colors the top half
+	        mov         ah,6              	; function 6
+	        mov         al,0              	; How many lines to scroll
+	        mov         bh,UPPER_COLOR    	; Black FG and white BG
+	        mov         ch,0              	; upper left Y
+	        mov         cl,0              	; upper left X
+	        mov         dh,12             	; lower right Y
+	        mov         dl,79             	; lower right X
+	        int         10h
+
+	; Colors the bottom half
+	        mov         ah,6
+	        mov         al,0
+	        mov         bh,LOWER_COLOR    	; White BG and black FG
+	        mov         ch,13
+	        mov         cl,0
+	        mov         dh,24
+	        mov         dl,79
+	        int         10h
+
+	        RET
+INIT ENDP
+
+
+SendI PROC
+	
+	mov         dx , 3FDH         			; Line Status Register address
+	In          al , dx           			; Read Line Status
+	test        al , 00100000b    			; Bit 6: transmit shift register empty
+	JZ          Leave23              			; Not empty, skip this cycle  
+
+	
+
+											; If the transmit data register is empty, sends the character to it
+	mov         dx , 3F8H         		; Transmit data register address
+	mov         al, Sent
+	out         dx , al
+	MOV sentflag, 1
+
+				MOV BX, 0FFFFH
+				Delay:
+				DEC BX
+				JNZ Delay
+Leave23:
+	RET
+SendI ENDP
+
+RecieveI PROC
+	        mov         dx , 3FDH         	; Line Status Register address
+	CHK:    in          al , dx
+	        test        al , 1            	; Bit 1: data ready
+	        JZ          ABORT             	; Not Ready, skip this cycle
+
+	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
+
+	        mov         dx , 03F8H        	; Data recieving register address
+	        in          al , dx
+			MOV Recieved, AL
+			MOV recieveflag, 1
+
+			
+
+            
+	; Displays the recieved character
+	       
+	        ; MoveCursor  CL,CH
+	        ; INC        	CL     	; Moves the away cursor 1 character to the right
+	ABORT:  
+	        RET
+RecieveI ENDP
 
 ; End file and tell the assembler what the main subroutine is
     END MAIN 
