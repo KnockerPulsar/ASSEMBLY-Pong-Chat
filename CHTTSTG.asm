@@ -32,7 +32,6 @@ ENDM
 ;    4- Add scrolling up and down with the arrow keys (check Lab 2 for more info)
 ;    5- Display the names of each side
 ;    6- Add the footer
-;    7- https://music.youtube.com/watch?v=QkFJau6aK3w&list=OLAK5uy_kqBgrX1-hKk1i0zb3MWS6R4tu5SmRjYdk (not a rickroll I swear)
 
 ; How to use
 ; ============================================================================================================
@@ -74,19 +73,22 @@ ENDM
 .STACK 64
 .DATA
 	;    ORG 100
-	UPPER_COLOR    DB 00FH                     	; 0 For black BG and F for white FG (text)
-	LOWER_COLOR    DB 0F0H                     	; Reverse the above
-	MyCursorPos    DB 0,0                      	; x,y for the current side's cursor (Local messages will be displayed at the top)
-	OtherCursorPos DB 0,12                     	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
-	Recieved       DB 0                        	; The recieved character
-	Sent           DB 0                        	; The sent character
-	MyName         DB 16,3,"SLAVE", 12 DUP('$')
-	OtherName      DB 17 DUP('$')
-	Master         DB 0
-	SendBuffer     DB 80 DUP('$'),0FEH
-	localCharIndex DB 0
-	ReceiveBuffer  DB 80 DUP('$'),0FEH
-	otherCharIndex DB 0
+	UPPER_COLOR        DB  00FH                     	; 0 For black BG and F for white FG (text)
+	LOWER_COLOR        DB  0F0H                     	; Reverse the above
+	MyCursorPos        DB  0,0                      	; x,y for the current side's cursor (Local messages will be displayed at the top)
+	OtherCursorPos     DB  0,13                     	; x,y for the other end's cursor (Away messages will be displayed at the bottom)
+	Recieved           DB  0                        	; The recieved character
+	Sent               DB  0                        	; The sent character
+	MyName             DB  16,3,"m", 12 DUP('$')
+	OtherName          DB  17 DUP('$')
+	Master             DB  1
+	SendBuffer         DB  80 DUP('$'),0FEH
+	localCharIndex     DB  0
+	ReceiveBuffer      DB  80 DUP('$'),0FEH
+	otherCharIndex     DB  0
+	ScrollBorderMaster EQU 12D
+	ScrollBorderSlave  EQU 23D
+	; Last line left for instructions (Press ESC to exit) for example
 .CODE
 MAIN PROC FAR
 	                     MOV           AX,@DATA
@@ -109,50 +111,35 @@ MAIN PROC FAR
 MAIN ENDP
 
 INIT PROC
-
-	; This was also copied but modified a bit
-
 	; Might be useful to convert to a macro/proc later as it'll be used to scroll
 	; Colors the top half
-	;  mov         ah,6                	; function 6 (How descriptive, Eng.Sandra...)
-	;  mov         al,0                	; How many lines to scroll
-	;  mov         bh,UPPER_COLOR      	; Black FG and white BG
-	;  mov         ch,0                	; upper left Y
-	;  mov         cl,0                	; upper left X
-	;  mov         dh,24               	; lower right Y
-	;  mov         dl,79               	; lower right X
-	;  int         10h
+	                     mov           ah,6                               	; function 6
+	                     mov           al,0                               	; How many lines to scroll
+	                     mov           bh,UPPER_COLOR                     	; Black FG and white BG
+	                     mov           ch,0                               	; upper left Y
+	                     mov           cl,0                               	; upper left X
+	                     mov           dh,ScrollBorderMaster              	; lower right Y
+	                     mov           dl,79                              	; lower right X
+	                     int           10h
 
-	; ; Colors the bottom half
-	;                      mov         ah,6
-	;                      mov         al,0
-	;                      mov         bh,LOWER_COLOR      	; White BG and black FG
-	;                      mov         ch,13
-	;                      mov         cl,0
-	;                      mov         dh,24
-	;                      mov         dl,79
-	;                      int         10h
+	; Colors the bottom half
+	                     mov           ah,6
+	                     mov           al,0
+	                     mov           bh,LOWER_COLOR                     	; White BG and black FG
+	                     mov           ch,ScrollBorderMaster+1
+	                     mov           cl,0
+	                     mov           dh,ScrollBorderSlave
+	                     mov           dl,79
+	                     int           10h
 
-	                     MOV           AH,0
-	                     MOV           AL, 03
-	                     INT           10H
-
-	                     LEA           SI,OtherCursorPos
-	                     MOV           DL,BYTE PTR [SI]
-	                     MOV           DH,BYTE PTR [SI+1]
-	                     DEC           DH
-	                     MoveCursor    DL,DH
-	                     MOV           CX , 80
-	Seperate:            
-	                     DisplayChar   '-'
-	                     Loop          Seperate
+	                     RET
 
 
 	; The below block was copied straight out of the lab
 	;  Set Divisor Latch Access Bit
-	                     mov           dx,3fbh             	; Line Control Register
-	                     mov           al,10000000b        	;Set Divisor Latch Access Bit
-	                     out           dx,al               	;Out it
+	                     mov           dx,3fbh                            	; Line Control Register
+	                     mov           al,10000000b                       	;Set Divisor Latch Access Bit
+	                     out           dx,al                              	;Out it
 	;  Set LSB byte of the Baud Rate Divisor Latch register.
 	                     mov           dx,3f8h
 	                     mov           al,0ch
@@ -179,8 +166,8 @@ Send PROC
 	; https://vitaly_filatov.tripod.com/ng/asm/asm_027.2.html
 	; Check if a key is pressed
 	                     MOV           AH,1
-	                     INT           16H                 	; Sets the ZF = 0 if a key is available, ZF = 1 if not
-	                     JNZ           Input               	; Skips sending any character if ZF = 1 to avoid repeating characters
+	                     INT           16H                                	; Sets the ZF = 0 if a key is available, ZF = 1 if not
+	                     JNZ           Input                              	; Skips sending any character if ZF = 1 to avoid repeating characters
 	                     JMP           NoInput
             
 	Input:               
@@ -194,47 +181,47 @@ Send PROC
 	                     ADD           SI , CX
 	                     LEA           DI , MyCursorPos
 
-	                     CMP           AL, 08H             	; Check if the user pressed backspace
+	                     CMP           AL, 08H                            	; Check if the user pressed backspace
 	                     JE            Backspace
-	                     CMP           AL , 0DH            	; Check if the user pressed enter
+	                     CMP           AL , 0DH                           	; Check if the user pressed enter
 	                     JE            SendBufferLBL
 
 	; Put the character in the send buffer AND DISPLAY IT
-	; TODO: CHECK IF X > 80, INC Y IF SO
-	; TODO: CHECK IF THE INDEX IS LARGER THAN THE BUFFER
-	                     CMP           BYTE PTR [SI+1],0FEH	; Check if the next character is 0FEH (BUFFER END)
-	                     JE            NoInput             	; DON'T ADD ANY MORE IF SO
-	                     MOV           BYTE PTR [SI], AL   	; MOVE THE CHAR IN THE BUFFER
-	                     INC           localCharIndex      	; INCR THE BUFFER INDEX
-	                     MOV           CL,BYTE PTR [DI]    	; Loads the local cursor's x
-	                     MOV           CH,BYTE PTR [DI+1]  	; Same but for the y
-	                     MoveCursor    CL,CH               	; Moves the cursor to the top half
+	                     CMP           BYTE PTR [SI+1],0FEH               	; Check if the next character is 0FEH (BUFFER END)
+	                     JE            NoInput                            	; DON'T ADD ANY MORE IF SO
+	                     MOV           BYTE PTR [SI], AL                  	; MOVE THE CHAR IN THE BUFFER
+	                     INC           localCharIndex                     	; INCR THE BUFFER INDEX
+	                     MOV           CL,BYTE PTR [DI]                   	; Loads the local cursor's x
+	                     MOV           CH,BYTE PTR [DI+1]                 	; Same but for the y
+	                     MoveCursor    CL,CH                              	; Moves the cursor to the top half
 	                     DisplayChar   AL
-	                     INC           BYTE PTR [DI]       	; Moves the x coordinate by 1 to the right to avoid overwriting
+	                     INC           BYTE PTR [DI]                      	; Moves the x coordinate by 1 to the right to avoid overwriting
 	                     JMP           CharWritten
 
 	Backspace:           
-	                     CMP           localCharIndex,1		; CAN'T BACKSPACE PAST THE FIRST CHARACTER
+	                     CMP           localCharIndex,1                   	; CAN'T BACKSPACE PAST THE FIRST CHARACTER
 	                     JL            NoInput
-	                     DEC           BYTE PTR [DI]       	; DEC X
-	                     MOV           CL , BYTE PTR [DI]  	; Loads the local cursor's x
-	                     MOV           CH , BYTE PTR [DI+1]	; Same but for the y
+	                     DEC           BYTE PTR [DI]                      	; DEC X
+	                     MOV           CL , BYTE PTR [DI]                 	; Loads the local cursor's x
+	                     MOV           CH , BYTE PTR [DI+1]               	; Same but for the y
 	                     MoveCursor    CL , CH
-	                     DisplayChar   ' '                 	; HIDES THE PREVIOUS CHAR
-
-	;  DEC           CL
+	                     DisplayChar   ' '                                	; HIDES THE PREVIOUS CHAR
 	                     MoveCursor    CL , CH
 	                     DEC           SI
 	                     MOV           BYTE PTR [SI], '$'
 	                     DEC           localCharIndex
 	                     JMP           CharWritten
 	SendBufferLBL:       
-	                     MOV           localCharIndex, 0
-	                     MOV           BYTE PTR [DI], 0
-	                     INC           BYTE PTR [DI+1]     	; MOVE THE CURSOR TO THE LINE BELOW
+	                     MOV           localCharIndex , 0
+	                     MOV           BYTE PTR [DI] , 0
+	                     INC           BYTE PTR [DI+1]                    	; MOVE THE CURSOR TO THE LINE BELOW
 	                     MOV           CL, BYTE PTR [DI]
 	                     MOV           CH, BYTE PTR [DI+1]
 	                     MoveCursor    CL,CH
+	                     CMP           BYTE PTR [DI+1],ScrollBorderMaster
+	                     JL            DontScrollMasterUp
+	                     CALL          ScrollMasterUp
+	DontScrollMasterUp:  
 	                     CALL          SENDBUFFERPROC
 	
 	NoInput:             
@@ -247,12 +234,12 @@ Recieve PROC
 	; Check that data recieve register is Ready
 	START:               
 	                     LEA           SI , ReceiveBuffer
-	                     mov           dx , 3FDH           	; Line Status Register address
+	                     mov           dx , 3FDH                          	; Line Status Register address
 	CHK:                 in            al , dx
-	                     test          al , 1              	; Bit 1: data ready
-	                     JZ            ABORT               	; Not Ready, skip this cycle
+	                     test          al , 1                             	; Bit 1: data ready
+	                     JZ            ABORT                              	; Not Ready, skip this cycle
 	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
-	                     mov           dx , 03F8H          	; Data recieving register address
+	                     mov           dx , 03F8H                         	; Data recieving register address
 	                     in            al , dx
 
 	; CHECK FOR THE FLAG
@@ -261,26 +248,14 @@ Recieve PROC
 
 	                     LEA           SI , ReceiveBuffer
 						 
-	; ; Send FFH to tell the other side that something's coming
-	; SENDFLAG_RECEIVE:
-	;                      mov           dx , 3FDH           	; Line Status Register address
-	; AGAINFLAG_RECEIVE:   In            al , dx             	; Read Line Status
-	;                      test          al , 00100000b      	; Bit 6: transmit shift register empty
-	;                      JZ            AGAINFLAG_RECEIVE   	; Not empty, skip this cycle
-
-	; ; If the transmit data register is empty, sends the character to it
-	;                      mov           dx , 3F8H           	; Transmit data register address
-	;                      mov           al , 0FFH
-	;                      out           dx , al
-
 	
 	RECEIVECHAR:         
-	                     mov           dx , 3FDH           	; Line Status Register address
+	                     mov           dx , 3FDH                          	; Line Status Register address
 	CHK_RECEIVE:         in            al , dx
-	                     test          al , 1              	; Bit 1: data ready
-	                     JZ            CHK_RECEIVE         	; Not Ready, skip this cycle
+	                     test          al , 1                             	; Bit 1: data ready
+	                     JZ            CHK_RECEIVE                        	; Not Ready, skip this cycle
 						 
-	                     mov           dx , 03F8H          	; Data recieving register address
+	                     mov           dx , 03F8H                         	; Data recieving register address
 	                     in            al , dx
 	                     MOV           BYTE PTR [SI] , AL
 	                     INC           SI
@@ -290,6 +265,7 @@ Recieve PROC
 	                     JMP           RECEIVECHAR
 	DISPLAYRECEIVED:     
 	                     LEA           SI, OtherCursorPos
+	                     MOV           BYTE PTR [SI], 0
 	                     MOV           CL, BYTE PTR [SI]
 	                     MOV           CH, BYTE PTR [SI+1]
 	                     MoveCursor    CL,CH
@@ -298,6 +274,10 @@ Recieve PROC
 
 	                     MOV           CX, 30
 	                     LEA           DI,ReceiveBuffer
+	                     CMP           BYTE PTR [SI+1], ScrollBorderSlave
+	                     JL            DontScrollSlaveUp
+	                     CALL          ScrollSlaveUp
+	DontScrollSlaveUp:   
 	CLEAR_RECEIVE_BUFFER:
 	                     MOV           BYTE PTR [DI], '$'
 	                     INC           DI
@@ -315,15 +295,15 @@ ReceiveOtherName PROC
 	
 	; Check that data recieve register is Ready
 	RecieveNextCharacter:
-	                     mov           dx , 3FDH           	; Line Status Register address
+	                     mov           dx , 3FDH                          	; Line Status Register address
 	CHKEXG:              in            al , dx
-	                     test          al , 1              	; Bit 1: data ready
-	                     JZ            CHKEXG              	; Not Ready, skip this cycle
+	                     test          al , 1                             	; Bit 1: data ready
+	                     JZ            CHKEXG                             	; Not Ready, skip this cycle
 
 	; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
-	                     mov           dx , 03F8H          	; Data recieving register address
+	                     mov           dx , 03F8H                         	; Data recieving register address
 	                     in            al , dx
-	                     mov           BYTE PTR [DI] , al  	; Stores the recieved character
+	                     mov           BYTE PTR [DI] , al                 	; Stores the recieved character
 	                     CMP           BYTE PTR [DI],'$'
 	                     JE            EndNameReceiving
 
@@ -338,7 +318,6 @@ SendMyName PROC
 	; Sending out my own name
 	; This can send up to 16 characters or until it encounters a '$'
 	; Check that Transmitter Holding Register is Empty
-
 	; Load how many characters are in the name
 	                     LEA           DI, MyName
 	; Points DI at the first character
@@ -346,14 +325,14 @@ SendMyName PROC
 	                     LEA           SI,MyCursorPos
 	 					 
 	SendNextCharacter:   
-	                     mov           dx , 3FDH           	; Line Status Register address
-	AGAINEXG:            In            al , dx             	; Read Line Status
-	                     test          al , 00100000b      	; Bit 6: transmit shift register empty
-	                     JZ            AGAINEXG            	; Not empty, skip this cycle
+	                     mov           dx , 3FDH                          	; Line Status Register address
+	AGAINEXG:            In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            AGAINEXG                           	; Not empty, skip this cycle
 	 
 	; Then sends out the characters byte by byte
 	; If the transmit data register is empty, sends the character to it
-	                     mov           dx , 3F8H           	; Transmit data register address
+	                     mov           dx , 3F8H                          	; Transmit data register address
 	                     mov           al, BYTE PTR [DI]
 	                     out           dx , al
  
@@ -373,13 +352,13 @@ ExchangeNames PROC
 	                     JNE           SlaveLBL
 
 	MasterLBL:           
-	CHKEsadsadsdXG:      mov           dx , 3FDH           	; Line Status Register address
+	CHKEsadsadsdXG:      mov           dx , 3FDH                          	; Line Status Register address
 	                     in            al , dx
-	                     test          al , 1              	; Bit 1: data ready
-	                     JZ            CHKEsadsadsdXG      	; Not Ready, skip this cycle
+	                     test          al , 1                             	; Bit 1: data ready
+	                     JZ            CHKEsadsadsdXG                     	; Not Ready, skip this cycle
 
 	; Loop until you receive FFH from the slave
-	                     mov           dx , 03F8H          	; Data recieving register address
+	                     mov           dx , 03F8H                         	; Data recieving register address
 	                     in            al , dx
 	                     CMP           al,0FFH
 	                     jne           CHKEsadsadsdXG
@@ -390,14 +369,14 @@ ExchangeNames PROC
 	                     JMP           FinishNameInit
 
 	SlaveLBL:            
-	                     mov           dx , 3FDH           	; Line Status Register address
+	                     mov           dx , 3FDH                          	; Line Status Register address
 	sadsadsa:            
-	                     In            al , dx             	; Read Line Status
-	                     test          al , 00100000b      	; Bit 6: transmit shift register empty
-	                     JZ            sadsadsa            	; Not empty, skip this cycle
+	                     In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            sadsadsa                           	; Not empty, skip this cycle
 
 	; Once the slave program runs, sends FFH to the master to inform it that it is ready
-	                     mov           dx , 3F8H           	; Transmit data register address
+	                     mov           dx , 3F8H                          	; Transmit data register address
 	                     mov           al , 0FFH
 	                     out           dx , al
 
@@ -415,6 +394,7 @@ DisplayNames PROC
 	                     MOV           CH, BYTE PTR [SI+1]
 	                     MoveCursor    CL,CH
 	                     DisplayBuffer MyName
+	                     DisplayChar   ':'
 	                     INC           BYTE PTR [SI+1]
 	                     MOV           BYTE PTR [SI], 0
 
@@ -423,6 +403,7 @@ DisplayNames PROC
 	                     MOV           CH, BYTE PTR [DI+1]
 	                     MoveCursor    CL,CH
 	                     DisplayString OtherName
+	                     DisplayChar   ':'
 	                     INC           BYTE PTR [DI+1]
 	                     MOV           BYTE PTR [DI], 0
 	                     RET
@@ -433,43 +414,31 @@ SENDBUFFERPROC PROC
 	                     LEA           SI , SendBuffer
 	; Send FFH to tell the other side that something's coming
 	SENDFLAG:            
-	                     mov           dx , 3FDH           	; Line Status Register address
-	AGAINFLAG:           In            al , dx             	; Read Line Status
-	                     test          al , 00100000b      	; Bit 6: transmit shift register empty
-	                     JZ            AGAINFLAG           	; Not empty, skip this cycle
+	                     mov           dx , 3FDH                          	; Line Status Register address
+	AGAINFLAG:           In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            AGAINFLAG                          	; Not empty, skip this cycle
 
 	; If the transmit data register is empty, sends the character to it
-	                     mov           dx , 3F8H           	; Transmit data register address
+	                     mov           dx , 3F8H                          	; Transmit data register address
 	                     mov           al , 0FFH
 	                     out           dx , al
-
-	; ; CHECKING FOR REPLY
-	;                      mov           dx , 3FDH           	; Line Status Register address
-	; CHKSEND:             in            al , dx
-	;                      test          al , 1              	; Bit 1: data ready
-	;                      JZ            CHKSEND             	; Not Ready, skip this cycle
-	; ; If Ready read the VALUE (WHY ARE YOU SCREAMING, ENG. SANDRA?!?) in Receive data register
-	;                      mov           dx , 03F8H          	; Data recieving register address
-	;                      in            al , dx
-	;                      CMP           AL, 0FFH
-	;                      JNE           CHKSEND
-
 
 	SENDCHAR:            
 	; https://stanislavs.org/helppc/int_14.html
 	; Check that Transmitter Holding Register is Empty
-	                     mov           dx , 3FDH           	; Line Status Register address
-	AGAIN:               In            al , dx             	; Read Line Status
-	                     test          al , 00100000b      	; Bit 6: transmit shift register empty
-	                     JZ            AGAIN               	; Not empty, skip this cycle
+	                     mov           dx , 3FDH                          	; Line Status Register address
+	AGAIN:               In            al , dx                            	; Read Line Status
+	                     test          al , 00100000b                     	; Bit 6: transmit shift register empty
+	                     JZ            AGAIN                              	; Not empty, skip this cycle
 
 
 	; If the transmit data register is empty, sends the character to it
-	                     mov           dx , 3F8H           	; Transmit data register address
+	                     mov           dx , 3F8H                          	; Transmit data register address
 	                     mov           al , BYTE PTR [SI]
 	                     out           dx , al
 	                     MOV           AH, BYTE PTR [SI]
-	                     MOV           BYTE PTR [SI], '$'  	; CLEARING THE BUFFER FOR THE NEXT MASSEGES
+	                     MOV           BYTE PTR [SI], '$'                 	; CLEARING THE BUFFER FOR THE NEXT MASSEGES
 	                     INC           SI
 	                     CMP           AH , '$'
 	                     JNE           SENDCHAR
@@ -478,4 +447,57 @@ SENDBUFFERPROC PROC
 	                     RET
 
 SENDBUFFERPROC ENDP
+
+ScrollMasterUp PROC
+	; AL = lines to scroll (0 = clear, CH, CL, DH, DL are used),
+	; BH = Background Color and Foreground color. BH = 43h, means that background color is red and foreground color is cyan. Refer the BIOS color attributes
+	; CH = Upper row number, CL = Left column number, DH = Lower row number, DL = Right column number
+	                     MOV           AL , 1
+	                     MOV           BH , UPPER_COLOR
+	                     MOV           CH , 1
+	                     MOV           CL , 0
+	                     MOV           DH , ScrollBorderMaster
+	                     MOV           DL , 79D
+	                     MOV           AH , 6D
+	                     INT           10H
+
+	                     LEA           SI, MyCursorPos
+	;  SUB           BYTE PTR [SI+1],1
+	                     MOV           BYTE PTR [SI+1], ScrollBorderMaster
+	                     DEC           BYTE PTR [SI+1]
+
+	                     MoveCursor    0,0
+	                     DisplayBuffer MyName
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+
+	                     RET
+
+ScrollMasterUp ENDP
+
+ScrollSlaveUp PROC
+	                     MOV           AL , 1
+	                     MOV           BH , LOWER_COLOR
+	                     MOV           DH , ScrollBorderMaster + 1
+	                     MOV           CL , 0
+	                     MOV           DH , ScrollBorderSlave
+	                     MOV           DL , 79D
+	                     MOV           AH , 6D
+	                     INT           10H
+
+	                     LEA           SI, OtherCursorPos
+	;  SUB           BYTE PTR [SI+1],1
+	                     MOV           BYTE PTR [SI+1],ScrollBorderSlave
+	                     DEC           BYTE PTR [SI+1]
+
+	                     MoveCursor    0,13D
+	                     DisplayString OtherName
+
+	                     MOV           CL, BYTE PTR [SI]
+	                     MOV           CH, BYTE PTR [SI+1]
+	                     MoveCursor    CL,CH
+
+	                     RET
+ScrollSlaveUp ENDP
 END MAIN
