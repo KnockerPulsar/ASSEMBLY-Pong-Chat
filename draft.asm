@@ -2272,7 +2272,7 @@ CheckInput:
 ; ---------------------------------------------------------------------------------------------------
 masterPlayer:
 	 LEA SI, PlayerOne
-     MOV CL, BYTE PTR [SI + 1]
+     MOV CL, BYTE PTR [SI + 1]								; yPos
     ;  MOV AH,1
     ;  INT 16H 
 
@@ -2281,9 +2281,10 @@ masterPlayer:
 	 LEA SI, exiting										; if he pressed, set this flag to 1 so we can use it in the main program to direct the user to Options Window
 	 MOV BYTE PTR [SI], 1
 	 JMP exitGame											; exit this procedure
+	
 	continue:
-CMP InvitationSender, 1
-jz slavePlayer
+		CMP InvitationSender, 1
+		jnz slavePlayer
 
 	SKIP_JUMP:
     ;  CMP AH, 17D											; Checks if player1 pressed W, move up
@@ -2301,7 +2302,7 @@ jz slavePlayer
     
      CMP AH, 80D											; player pressed Down arrow
      JZ MoveDownP1
-     JMP EndMoveCheckP1
+     JMP noMove
 
 MoveUpP1:    												; Checks if PlayerOne is moving up & out of the game boundary
 	 CMP CL, 2
@@ -2321,21 +2322,22 @@ EndMoveCheckP1:
 	;  JNZ EndShootCheckP1 									; If the player didn't press D, don't check for bullets
 
 	 MOV BYTE PTR [SI + 1], CL
-
+	 JMP EndShootCheckP2
+noMove:
 	 CMP AH, 75D
-	 JNZ EndShootCheckP1 
+	 JNZ EndShootCheckP2 
 
 	 LEA SI, PlayerOne
 	 MOV BL, BYTE PTR [SI + 3]
 	 CMP BL, 0
-	 ;JNZ EndShootCheckP1 									; If the player has any bullets in the arena, don't shoot any more bullets
-	 jz her
+	 ;JNZ EndShootCheckP2 									; If the player has any bullets in the arena, don't shoot any more bullets
+	 jnz EndShootCheckP2
 	 MOV BL, BYTE PTR[SI + 2]
 	 CMP BL, 0
 	 ;JZ EndShootCheckP1  									; If the player has no bullets left to shoot, don't shoot
-	 jz her
+	 jz EndShootCheckP2
+	
 	 CALL Player1Shoot
-her:
 	 jmp exitGame
 	
 	EndShootCheckP1:
